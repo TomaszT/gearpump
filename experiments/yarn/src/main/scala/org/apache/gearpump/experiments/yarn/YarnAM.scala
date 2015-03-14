@@ -70,17 +70,17 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
   
   override def receive: Receive = {
     case containerRequest: ContainerRequestMessage =>
-      LOG.info("Received ContainerRequestMessage")
+      println("Received ContainerRequestMessage")
       amRMClient ! containerRequest
     case rmCallbackHandler: RMCallbackHandler =>
-      LOG.info("Received RMCallbackHandler")
+      println("Received RMCallbackHandler")
       amRMClient forward rmCallbackHandler
       amRMClient ! RegisterAMMessage("", 0, "")
     case amResponse: RegisterApplicationMasterResponse =>
-      LOG.info("Received RegisterApplicationMasterResponse")
+      println("Received RegisterApplicationMasterResponse")
       requestContainers(amResponse)
     case launchContainers: LaunchContainers =>
-      LOG.info("Received LaunchContainers")
+      println("Received LaunchContainers")
       launchContainers.containers.foreach(container => {
         context.actorOf(Props(classOf[ContainerLauncherActor], container, nmClientAsync, nmCallbackHandler))
       })
@@ -346,6 +346,7 @@ object YarnAM extends App with ArgumentsParser {
     try {
       implicit val timeout = Timeout(5, TimeUnit.SECONDS)
       val config = ConfigFactory.load
+      println("Creating YarnAMActor")
       implicit val system = ActorSystem("GearPumpAM", config)
       LOG.info("Creating YarnAMActor")
       system.actorOf(Props(classOf[YarnAMActor], new AppConfig(parse(args), config), new YarnConfiguration), "GearPumpAMActor")

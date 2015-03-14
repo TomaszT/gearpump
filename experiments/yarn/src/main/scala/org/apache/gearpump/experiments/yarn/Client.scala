@@ -60,9 +60,7 @@ trait ClientAPI {
   def monitorAM(appContext: ApplicationSubmissionContext): Unit
   def uploadAMResourcesToHDFS(): Unit
 }
-//def getEnvVars(conf: Config)(key: String): String
 
-//cliopts: ParseResult, conf: Config
 class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: YarnClient) extends ClientAPI {
   import org.apache.gearpump.experiments.yarn.Client._
   import org.apache.gearpump.experiments.yarn.EnvVars._
@@ -97,7 +95,10 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
     val memory = getMemory(CONTAINER_MEMORY)
     val vmcores = getEnv(CONTAINER_VCORES)
     val logdir = "/tmp" //ApplicationConstants.LOG_DIR_EXPANSION_VAR
-    val command = s"$exe $mainClass -containers $count -containerMemory $memory -containerVCores $vmcores 1>$logdir/AM_stdout 2>$logdir/AM_stderr"
+    val command = s"$exe $mainClass -containers $count -containerMemory $memory -containerVCores $vmcores" +
+    "1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/" + ApplicationConstants.STDOUT + 
+    "2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/" + ApplicationConstants.STDERR;
+
     LOG.info(s"command=$command")
     command
   }
@@ -220,10 +221,14 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
 
 
   def deploy() = {
+    LOG.info("Starting AM")
+    print("starting AM")
     yarnClient.init(yarnConf)
     yarnClient.start()
     val appContext = yarnClient.createApplication.getApplicationSubmissionContext
+    
     appContext.setApplicationName(getEnv(YARNAPPMASTER_NAME))
+    
     appContext.setAMContainerSpec(configureAMLaunchContext)
     appContext.setResource(getAMCapability)
     appContext.setQueue(getEnv(YARNAPPMASTER_QUEUE))
@@ -244,6 +249,7 @@ object Client extends App with ArgumentsParser {
     "main" -> CLIOption[String]("<AppMaster main class>", required = false),
     "monitor" -> CLIOption[Boolean]("<monitor AppMaster state>", required = false, defaultValue = Some(false))
   )
-
+  
   new Client(new AppConfig(parse(args), ConfigFactory.load), new YarnConfiguration, YarnClient.createYarnClient)
 }
+
