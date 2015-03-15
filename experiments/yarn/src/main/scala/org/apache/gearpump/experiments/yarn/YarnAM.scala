@@ -39,7 +39,8 @@ import scala.collection.JavaConverters._
 import org.apache.gearpump.experiments.yarn.Client._
 import org.apache.gearpump.experiments.yarn.CmdLineVars._
 import org.apache.gearpump.experiments.yarn.EnvVars._
-import org.apache.hadoop.yarn.api.ApplicationConstants
+import java.net.InetAddress
+import org.apache.hadoop.net.NetUtils
 
 
 
@@ -67,20 +68,23 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
   val rmCallbackHandler = context.actorOf(Props(classOf[RMCallbackHandlerActor], appConfig, self), "rmCallbackHandler")
   val amRMClient = context.actorOf(Props(classOf[AMRMClientAsyncActor], yarnConf, self), "amRMClient")
   
-  
   override def receive: Receive = {
     case containerRequest: ContainerRequestMessage =>
-      println("Received ContainerRequestMessage")
+      LOG.info("Received ContainerRequestMessage")
       amRMClient ! containerRequest
     case rmCallbackHandler: RMCallbackHandler =>
-      println("Received RMCallbackHandler")
+      LOG.info("Received RMCallbackHandler")
       amRMClient forward rmCallbackHandler
-      amRMClient ! RegisterAMMessage("", 0, "")
+      val host = InetAddress.getLocalHost().getHostName();
+      val port = appConfig.getEnv(YARNAPPMASTER_PORT).toInt
+      val target = host + ":" + port
+      val addr = NetUtils.createSocketAddr(target);
+      amRMClient ! RegisterAMMessage(addr.getHostName, port, "")
     case amResponse: RegisterApplicationMasterResponse =>
-      println("Received RegisterApplicationMasterResponse")
+      LOG.info("Received RegisterApplicationMasterResponse")
       requestContainers(amResponse)
     case launchContainers: LaunchContainers =>
-      println("Received LaunchContainers")
+      LOG.info("Received LaunchContainers")
       launchContainers.containers.foreach(container => {
         context.actorOf(Props(classOf[ContainerLauncherActor], container, nmClientAsync, nmCallbackHandler))
       })
@@ -91,6 +95,7 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
   private[this] def createNMClient(containerListener: NMCallbackHandler): NMClientAsync = {
     LOG.info("Creating NMClientAsync")
     val nmClient = new NMClientAsyncImpl(containerListener)
+    LOG.info("Yarn config : " + yarnConf.get("yarn.resourcemanager.hostname"))
     nmClient.init(yarnConf)
     nmClient.start()
     nmClient
@@ -133,7 +138,7 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
           amRMClient ! AMStatusMessage(FinalApplicationStatus.FAILED, message, null)
           success = false
         }
-      case AllRequestedContainersCompleted =>
+       case AllRequestedContainersCompleted =>
         val message = s"Diagnostics. total=${appConfig.getEnv(CONTAINER_COUNT).toInt}, completed=${stats.completed}, allocated=${stats.allocated}, failed=${stats.failed}"
         amRMClient ! AMStatusMessage(FinalApplicationStatus.SUCCEEDED, message, null)
         success = true
@@ -141,7 +146,7 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
 
     amRMClient ! PoisonPill
     success
-  }
+    }
 }
 
 class NMCallbackHandler() extends NMClientAsync.CallbackHandler {
@@ -150,7 +155,8 @@ class NMCallbackHandler() extends NMClientAsync.CallbackHandler {
   def onContainerStarted(containerId: ContainerId, allServiceResponse: java.util.Map[String, ByteBuffer]) {
     LOG.info(s"Container started : $containerId")
   }
-
+    
+  
   def onContainerStatusReceived(containerId: ContainerId, containerStatus: ContainerStatus) {
     LOG.info(s"Container status received : $containerId, status $containerStatus")
   }
@@ -210,8 +216,9 @@ class AMRMClientAsyncActor(yarnConf: YarnConfiguration, yarnAM: ActorRef) extend
       LOG.info("Received ContainerRequestMessage")
       client.addContainerRequest(createContainerRequest(containerRequest))
     case amAttr: RegisterAMMessage =>
-      LOG.info(s"Received RegisterAMMessage ${amAttr.appHostName} ${amAttr.appHostPort} ${amAttr.appTrackingUrl}")
+      LOG.info(s"Received RegisterAMMessage! ${amAttr.appHostName}:${amAttr.appHostPort}${amAttr.appTrackingUrl}")
       val response = client.registerApplicationMaster(amAttr.appHostName, amAttr.appHostPort, amAttr.appTrackingUrl)
+      LOG.info("got response : " + response)
       yarnAM ! response
     case amStatus: AMStatusMessage =>
       LOG.info("Received AMStatusMessage")
@@ -318,8 +325,8 @@ class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync,
   def launch(container: Container) {
     val command: List[String] = List(
       "/bin/date",
-      "1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/" + ApplicationConstants.STDOUT,
-      "2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/" + ApplicationConstants.STDERR)
+      "1>/tmp/panchostdout",
+      "2>/tmp/panchostderr")
 
     val ctx = ContainerLaunchContext.newInstance(Map[String, LocalResource]().asJava,
       Map[String, String]().asJava,
@@ -346,16 +353,21 @@ object YarnAM extends App with ArgumentsParser {
     try {
       implicit val timeout = Timeout(5, TimeUnit.SECONDS)
       val config = ConfigFactory.load
-      println("Creating YarnAMActor")
       implicit val system = ActorSystem("GearPumpAM", config)
+      LOG.info("Parsing input arguments")
+      println("[println]Parsing input arguments")
+      val appConfig = new AppConfig(parse(args), config)
       LOG.info("Creating YarnAMActor")
-      system.actorOf(Props(classOf[YarnAMActor], new AppConfig(parse(args), config), new YarnConfiguration), "GearPumpAMActor")
+      println("[println]Creating YarnAMActor")
+      system.actorOf(Props(classOf[YarnAMActor], appConfig, new YarnConfiguration), "GearPumpAMActor")
       system.awaitTermination()
       LOG.info("Shutting down")
+      println("[println]Shutting down")
       system.shutdown()
     } catch {
       case throwable: Throwable =>
         LOG.error("Caught exception", throwable)
+        throwable.printStackTrace()
     }
 
   }

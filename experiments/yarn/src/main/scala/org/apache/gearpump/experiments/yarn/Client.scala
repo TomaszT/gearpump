@@ -20,7 +20,6 @@ package org.apache.gearpump.experiments.yarn
 
 import java.io._
 import java.nio.ByteBuffer
-
 import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.gearpump.cluster.main.{ArgumentsParser, CLIOption, ParseResult}
 import org.apache.gearpump.util.LogUtil
@@ -34,9 +33,9 @@ import org.apache.hadoop.yarn.client.api.YarnClient
 import org.apache.hadoop.yarn.conf.YarnConfiguration
 import org.apache.hadoop.yarn.util.{Apps, ConverterUtils, Records}
 import org.slf4j.Logger
-
 import scala.collection.JavaConversions._
 import scala.util.{Failure, Success, Try}
+import java.nio.file.Paths
 
 /**
 Features for YARNClient
@@ -94,10 +93,14 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
     val count = getEnv(CONTAINER_COUNT).trim
     val memory = getMemory(CONTAINER_MEMORY)
     val vmcores = getEnv(CONTAINER_VCORES)
-    val logdir = "/tmp" //ApplicationConstants.LOG_DIR_EXPANSION_VAR
-    val command = s"$exe $mainClass -containers $count -containerMemory $memory -containerVCores $vmcores" +
-    "1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/" + ApplicationConstants.STDOUT + 
-    "2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/" + ApplicationConstants.STDERR;
+    val logdir = ApplicationConstants.LOG_DIR_EXPANSION_VAR
+/*    val command = s"$exe $mainClass -containers $count -containerMemory $memory -containerVCores $vmcores" +
+    " 1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/" + ApplicationConstants.STDOUT + 
+    " 2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/" + ApplicationConstants.STDERR;
+*/      
+    val command = s"$exe $mainClass" +
+    " 1>" + logdir +"/" + ApplicationConstants.STDOUT + 
+    " 2>" + logdir +"/" + ApplicationConstants.STDERR;
 
     LOG.info(s"command=$command")
     command
@@ -125,6 +128,7 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
       excludeJar.trim
     }).toIndexedSeq
     LOG.info(s"jarDir=$jarDir")
+    //TODO: if jarDir didn't file will be created instead of dir    
     Option(new File(jarDir)).foreach(_.list.filter(file => {
       file.endsWith(".jar")
     }).filter(jar => {
@@ -141,7 +145,7 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
   }
 
   def configureAMLaunchContext: ContainerLaunchContext = {
-    uploadAMResourcesToHDFS()
+    //uploadAMResourcesToHDFS()
     val amContainer = Records.newRecord(classOf[ContainerLaunchContext])
     amContainer.setCommands(Seq(getCommand))
     val environment = getAppEnv

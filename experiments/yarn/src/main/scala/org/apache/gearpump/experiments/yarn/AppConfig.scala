@@ -28,6 +28,7 @@ object EnvVars {
   val YARNAPPMASTER_VCORES = "gearpump.yarn.applicationmaster.vcores"
   val YARNAPPMASTER_QUEUE = "gearpump.yarn.applicationmaster.queue"
   val YARNAPPMASTER_MAIN = "gearpump.yarn.applicationmaster.main"
+  val YARNAPPMASTER_PORT = "gearpump.yarn.applicationmaster.port"
   val CONTAINER_COUNT = "gearpump.yarn.container.count"
   val CONTAINER_MEMORY = "gearpump.yarn.container.memory"
   val CONTAINER_VCORES = "gearpump.yarn.container.vcores"
