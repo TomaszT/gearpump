@@ -41,7 +41,16 @@ import org.apache.gearpump.experiments.yarn.CmdLineVars._
 import org.apache.gearpump.experiments.yarn.EnvVars._
 import java.net.InetAddress
 import org.apache.hadoop.net.NetUtils
-
+import org.apache.hadoop.yarn.api.ApplicationConstants
+import org.apache.hadoop.security.UserGroupInformation
+import org.apache.hadoop.io.DataOutputBuffer
+import org.apache.hadoop.yarn.util.Apps
+import org.apache.hadoop.yarn.api.ApplicationConstants.Environment
+import java.io.File
+import scala.collection.JavaConversions._
+import org.apache.hadoop.yarn.util.ConverterUtils
+import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.fs.Path
 
 
 object Actions {
@@ -86,7 +95,7 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
     case launchContainers: LaunchContainers =>
       LOG.info("Received LaunchContainers")
       launchContainers.containers.foreach(container => {
-        context.actorOf(Props(classOf[ContainerLauncherActor], container, nmClientAsync, nmCallbackHandler))
+        context.actorOf(Props(classOf[ContainerLauncherActor], container, nmClientAsync, nmCallbackHandler, appConfig, yarnConf))
       })
     case done: RMHandlerDone =>
       cleanUp(done)
@@ -310,7 +319,7 @@ class RMCallbackHandlerActor(appConfig: AppConfig, yarnAM: ActorRef) extends Act
 
 }
 
-class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync, containerListener: NMCallbackHandler) extends Actor {
+class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync, containerListener: NMCallbackHandler, appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
   val LOG: Logger = LogUtil.getLogger(getClass)
 
   override def preStart(): Unit = {
@@ -322,23 +331,86 @@ class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync,
       LOG.error(s"Unknown message received")
   }
 
-  def launch(container: Container) {
+/*  def launch(container: Container) {
+    val exe = appConfig.getEnv(GEARPUMPMASTER_COMMAND)
+    val main = appConfig.getEnv(GEARPUMPMASTER_MAIN)
+    val logdir = ApplicationConstants.LOG_DIR_EXPANSION_VAR
     val command: List[String] = List(
-      "/bin/date",
-      "1>/tmp/panchostdout",
-      "2>/tmp/panchostderr")
-
+      exe + " " + main,
+      "1>" + logdir +"/" + ApplicationConstants.STDOUT,
+      "2>" + logdir +"/" + ApplicationConstants.STDERR)
+    LOG.info("Trying to exec command : " + command)
     val ctx = ContainerLaunchContext.newInstance(Map[String, LocalResource]().asJava,
       Map[String, String]().asJava,
       command.asJava,
       null,
       null,
       null)
+    
+    nmClientAsync.startContainerAsync(container, ctx)
+  }
+}*/
+  
+  def getAppEnv: Map[String, String] = {
+    val appMasterEnv = new java.util.HashMap[String,String]
+    for (
+      c <- yarnConf.getStrings(
+        YarnConfiguration.YARN_APPLICATION_CLASSPATH,
+        YarnConfiguration.DEFAULT_YARN_APPLICATION_CLASSPATH.mkString(","))
+    ) {
+      Apps.addToEnvironment(appMasterEnv, Environment.CLASSPATH.name(),
+        c.trim(), File.pathSeparator)
+    }
+    Apps.addToEnvironment(appMasterEnv, Environment.CLASSPATH.name(),
+      Environment.PWD.$()+File.separator+"*", File.pathSeparator)
+    appMasterEnv.toMap
+  }
 
+  def getFs = FileSystem.get(yarnConf)  
+  def getHdfs = new Path(getFs.getHomeDirectory, "hdfs://user/gearpump/jars/")
+
+  def getAMLocalResourcesMap: Map[String, LocalResource] = {
+      getFs.listStatus(getHdfs).map(fileStatus => {
+      val localResouceFile = Records.newRecord(classOf[LocalResource])
+      val path = ConverterUtils.getYarnUrlFromPath(fileStatus.getPath)
+      LOG.info(s"local resource path=${path.getFile}")
+      localResouceFile.setResource(path)
+      localResouceFile.setType(LocalResourceType.FILE)
+      localResouceFile.setSize(fileStatus.getLen)
+      localResouceFile.setTimestamp(fileStatus.getModificationTime)
+      localResouceFile.setVisibility(LocalResourceVisibility.APPLICATION)
+      fileStatus.getPath.getName -> localResouceFile
+    }).toMap
+  }
+  
+  def getCommand: String = {
+    val exe = appConfig.getEnv(GEARPUMPMASTER_COMMAND)
+    val main = appConfig.getEnv(GEARPUMPMASTER_MAIN)
+    val logdir = ApplicationConstants.LOG_DIR_EXPANSION_VAR
+    val command = exe + " " + main +
+    " 1>" + logdir +"/" + ApplicationConstants.STDOUT +
+    " 2>" + logdir +"/" + ApplicationConstants.STDERR
+    LOG.info("Will try to lunch command : " + command)
+    command
+  }
+  
+  def launch(container: Container) {
+    val ctx = Records.newRecord(classOf[ContainerLaunchContext])
+    ctx.setCommands(Seq(getCommand))
+    val environment = getAppEnv
+    environment.foreach(pair => {
+      val (key, value) = pair
+      LOG.info(s"getAppEnv key=$key value=$value")
+    })
+    ctx.setEnvironment(getAppEnv)
+    ctx.setLocalResources(getAMLocalResourcesMap)
+    val credentials = UserGroupInformation.getCurrentUser.getCredentials
+    val dob = new DataOutputBuffer
+    credentials.writeTokenStorageToStream(dob)
+    ctx.setTokens(ByteBuffer.wrap(dob.getData))
     nmClientAsync.startContainerAsync(container, ctx)
   }
 }
-
 
 object YarnAM extends App with ArgumentsParser {
   val LOG: Logger = LogUtil.getLogger(getClass)
@@ -357,9 +429,15 @@ object YarnAM extends App with ArgumentsParser {
       LOG.info("Parsing input arguments")
       println("[println]Parsing input arguments")
       val appConfig = new AppConfig(parse(args), config)
+      
       LOG.info("Creating YarnAMActor")
-      println("[println]Creating YarnAMActor")
-      system.actorOf(Props(classOf[YarnAMActor], appConfig, new YarnConfiguration), "GearPumpAMActor")
+      LOG.info("HADOOP_CONF_DIR : " + System.getenv("HADOOP_CONF_DIR"))
+      val classpath = System.getProperty("java.class.path") + ":/home/pancho/hadoop/conf/yarn-site.xml"
+      System.setProperty("java.class.path", classpath)
+      LOG.info("CLASSPATH : " + System.getProperty("java.class.path"))
+      val yarnConfiguration = new YarnConfiguration
+      LOG.info("Yarn config : " + yarnConfiguration.get("yarn.resourcemanager.hostname"))
+      system.actorOf(Props(classOf[YarnAMActor], appConfig, yarnConfiguration), "GearPumpAMActor")
       system.awaitTermination()
       LOG.info("Shutting down")
       println("[println]Shutting down")

@@ -81,8 +81,8 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
       case 'M' =>
         containerMemory
       case _ =>
-        LOG.error(s"Invalid value $memory defaulting to 2G")
-        2048
+        LOG.error(s"Invalid value $memory defaulting to 1G")
+        1024
     }
     containerMemory
   }
@@ -172,8 +172,8 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
       case 'M' =>
         containerMemory
       case _ =>
-        LOG.error(s"Invalid value $memory defaulting to 2G")
-        2048
+        LOG.error(s"Invalid value $memory defaulting to 1G")
+        1024
     }
     capability.setMemory(containerMemory)
     capability.setVirtualCores(getEnv(YARNAPPMASTER_VCORES).toInt)
@@ -232,10 +232,10 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
     val appContext = yarnClient.createApplication.getApplicationSubmissionContext
     
     appContext.setApplicationName(getEnv(YARNAPPMASTER_NAME))
-    
     appContext.setAMContainerSpec(configureAMLaunchContext)
     appContext.setResource(getAMCapability)
     appContext.setQueue(getEnv(YARNAPPMASTER_QUEUE))
+    
     yarnClient.submitApplication(appContext)
     monitorAM(appContext)
   }
