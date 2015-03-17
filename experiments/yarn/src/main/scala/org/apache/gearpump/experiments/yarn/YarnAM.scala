@@ -51,6 +51,7 @@ import scala.collection.JavaConversions._
 import org.apache.hadoop.yarn.util.ConverterUtils
 import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.fs.Path
+import org.apache.hadoop.conf.Configuration
 
 
 object Actions {
@@ -367,7 +368,7 @@ class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync,
   }
 
   def getFs = FileSystem.get(yarnConf)  
-  def getHdfs = new Path(getFs.getHomeDirectory, "hdfs://user/gearpump/jars/")
+  def getHdfs = new Path(getFs.getHomeDirectory, "/user/gearpump/jars/")
 
   def getAMLocalResourcesMap: Map[String, LocalResource] = {
       getFs.listStatus(getHdfs).map(fileStatus => {
@@ -386,8 +387,9 @@ class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync,
   def getCommand: String = {
     val exe = appConfig.getEnv(GEARPUMPMASTER_COMMAND)
     val main = appConfig.getEnv(GEARPUMPMASTER_MAIN)
-    val logdir = ApplicationConstants.LOG_DIR_EXPANSION_VAR
-    val command = exe + " " + main +
+    val logdir = "/tmp" 
+    //ApplicationConstants.LOG_DIR_EXPANSION_VAR
+    val command = exe + " " + main + " -ip 127.0.0.1 -port 3000" +
     " 1>" + logdir +"/" + ApplicationConstants.STDOUT +
     " 2>" + logdir +"/" + ApplicationConstants.STDERR
     LOG.info("Will try to lunch command : " + command)
@@ -421,6 +423,19 @@ object YarnAM extends App with ArgumentsParser {
     APPMASTER_PORT -> CLIOption[String]("<Gearpump master port>", required = false)
   )
 
+  /**
+   * For unknown yet reasons this is needed for my local pseudo distributed cluster.   
+   * 
+   */
+  def getForcedDefaultYarnConf:Configuration = {
+      val hadoopConf  = new Configuration(true)
+      val configDir = "/home/pancho/hadoop/conf/";
+      Configuration.addDefaultResource(configDir + "core-site.xml")
+      Configuration.addDefaultResource(configDir + "hdfs-site")
+      Configuration.addDefaultResource(configDir + "yarn-site.xml")
+      new YarnConfiguration(hadoopConf)
+  }
+  
   def apply(args: Array[String]) = {
     try {
       implicit val timeout = Timeout(5, TimeUnit.SECONDS)
@@ -433,10 +448,9 @@ object YarnAM extends App with ArgumentsParser {
       LOG.info("Creating YarnAMActor")
       LOG.info("HADOOP_CONF_DIR : " + System.getenv("HADOOP_CONF_DIR"))
       val classpath = System.getProperty("java.class.path") + ":/home/pancho/hadoop/conf/yarn-site.xml"
-      System.setProperty("java.class.path", classpath)
-      LOG.info("CLASSPATH : " + System.getProperty("java.class.path"))
-      val yarnConfiguration = new YarnConfiguration
-      LOG.info("Yarn config : " + yarnConfiguration.get("yarn.resourcemanager.hostname"))
+      System.setProperty("java.class.path", classpath)     
+      val yarnConfiguration = getForcedDefaultYarnConf
+      LOG.info("Yarn config (yarn.resourcemanager.hostname): " + yarnConfiguration.get("yarn.resourcemanager.hostname"))
       system.actorOf(Props(classOf[YarnAMActor], appConfig, yarnConfiguration), "GearPumpAMActor")
       system.awaitTermination()
       LOG.info("Shutting down")
