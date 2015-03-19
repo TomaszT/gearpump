@@ -59,8 +59,10 @@ object Actions {
   case class Failed(throwable: Throwable) extends Reason
   case object ShutdownRequest extends Reason
   case object AllRequestedContainersCompleted extends Reason
-
-  case class LaunchContainers(containers: List[Container])
+    
+  case class LaunchMasterContainers(containers: List[Container])
+  case class LaunchWorkerContainers(containers: List[Container])
+  case class LaunchServiceContainer(containers: List[Container])
   case class ContainerRequestMessage(memory: Int, vCores: Int)
   case class RMHandlerDone(reason: Reason, rMHandlerContainerStats: RMHandlerContainerStats)
   case class RMHandlerContainerStats(allocated: Int, completed: Int, failed: Int)
@@ -73,10 +75,14 @@ object Actions {
  */
 class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
   val LOG: Logger = LogUtil.getLogger(getClass)
+  //TODO: should be generated (case of collision), there will be more than one master
+  val MASTER_PORT = "3000"
+  val CONTAINER_LOG_NAME = "container.log"  
   val nmCallbackHandler = createNMCallbackHandler
   val nmClientAsync = createNMClient(nmCallbackHandler)
   val rmCallbackHandler = context.actorOf(Props(classOf[RMCallbackHandlerActor], appConfig, self), "rmCallbackHandler")
   val amRMClient = context.actorOf(Props(classOf[AMRMClientAsyncActor], yarnConf, self), "amRMClient")
+  
   
   override def receive: Receive = {
     case containerRequest: ContainerRequestMessage =>
@@ -93,13 +99,46 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
     case amResponse: RegisterApplicationMasterResponse =>
       LOG.info("Received RegisterApplicationMasterResponse")
       requestContainers(amResponse)
-    case launchContainers: LaunchContainers =>
-      LOG.info("Received LaunchContainers")
-      launchContainers.containers.foreach(container => {
-        context.actorOf(Props(classOf[ContainerLauncherActor], container, nmClientAsync, nmCallbackHandler, appConfig, yarnConf))
-      })
+    case launchMasterContainers: LaunchMasterContainers =>
+      LOG.info("Received LaunchMasterContainers")
+      launchContainers(launchMasterContainers.containers, getMasterCommand)
+    case launchWorkerContainers: LaunchWorkerContainers =>
+      LOG.info("Received LaunchMasterContainers")
+      launchContainers(launchWorkerContainers.containers, getWorkerCommand)
     case done: RMHandlerDone =>
       cleanUp(done)
+  }
+
+  private[this] def launchContainers(containers: List[Container], getCommand: String => String) {
+    containers.foreach(container => {
+      container.getNodeId.getHost
+      LOG.info(s"Launching containter: containerId :  ${container.getId}, host ip : ${container.getNodeId.getHost}")
+      val command = getCommand(getCliOptsForMasterAddr(container.getNodeId.getHost, MASTER_PORT))
+      LOG.info("Launching command : " + command)
+      context.actorOf(Props(classOf[ContainerLauncherActor], container, nmClientAsync, nmCallbackHandler, appConfig, yarnConf, command))
+    })
+    
+  }
+  /**
+   * TODO: ip and port should be constants   
+   */
+  private[this] def getCliOptsForMasterAddr(masterHost:String, masterPort:String): String = {
+    //ie: -ip 127.0.0.1 -port 3000
+    return s"-ip $masterHost -port $masterPort"
+  }
+
+  private[this] def getMasterCommand(cliOpts: String): String = {
+    val exe = appConfig.getEnv(GEARPUMPMASTER_COMMAND)
+    val main = appConfig.getEnv(GEARPUMPMASTER_MAIN)
+    val command = s"$exe $main $cliOpts 2>&1> ${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/$CONTAINER_LOG_NAME"     
+    command
+  }
+
+  private[this] def getWorkerCommand(cliOpts: String): String = {
+    val exe = appConfig.getEnv(WORKER_COMMAND)
+    val main = appConfig.getEnv(WORKER_MAIN)
+    val command = s"$exe $main $cliOpts 2>&1> ${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/$CONTAINER_LOG_NAME"     
+    command
   }
 
   private[this] def createNMClient(containerListener: NMCallbackHandler): NMClientAsync = {
@@ -163,9 +202,8 @@ class NMCallbackHandler() extends NMClientAsync.CallbackHandler {
   val LOG: Logger = LogUtil.getLogger(getClass)
 
   def onContainerStarted(containerId: ContainerId, allServiceResponse: java.util.Map[String, ByteBuffer]) {
-    LOG.info(s"Container started : $containerId")
+    LOG.info(s"Container started : $containerId, " + allServiceResponse)
   }
-    
   
   def onContainerStatusReceived(containerId: ContainerId, containerStatus: ContainerStatus) {
     LOG.info(s"Container status received : $containerId, status $containerStatus")
@@ -249,7 +287,7 @@ class RMCallbackHandler(appConfig: AppConfig, am: ActorRef) extends AMRMClientAs
   def onContainersAllocated(allocatedContainers: java.util.List[Container]) {
     LOG.info(s"Got response from RM for container request, allocatedCnt=${allocatedContainers.size}")
     allocatedContainersCount.addAndGet(allocatedContainers.size)
-    am ! LaunchContainers(allocatedContainers.asScala.toList)
+    am ! LaunchMasterContainers(allocatedContainers.asScala.toList)
   }
 
   def onContainersCompleted(completedContainers: java.util.List[ContainerStatus]) {
@@ -320,9 +358,9 @@ class RMCallbackHandlerActor(appConfig: AppConfig, yarnAM: ActorRef) extends Act
 
 }
 
-class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync, containerListener: NMCallbackHandler, appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
-  val LOG: Logger = LogUtil.getLogger(getClass)
-
+class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync, containerListener: NMCallbackHandler, appConfig: AppConfig, yarnConf: YarnConfiguration, command: String) extends Actor {
+  val LOG: Logger = LogUtil.getLogger(getClass)  
+  
   override def preStart(): Unit = {
     launch(container)
   }
@@ -331,26 +369,6 @@ class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync,
     case _ =>
       LOG.error(s"Unknown message received")
   }
-
-/*  def launch(container: Container) {
-    val exe = appConfig.getEnv(GEARPUMPMASTER_COMMAND)
-    val main = appConfig.getEnv(GEARPUMPMASTER_MAIN)
-    val logdir = ApplicationConstants.LOG_DIR_EXPANSION_VAR
-    val command: List[String] = List(
-      exe + " " + main,
-      "1>" + logdir +"/" + ApplicationConstants.STDOUT,
-      "2>" + logdir +"/" + ApplicationConstants.STDERR)
-    LOG.info("Trying to exec command : " + command)
-    val ctx = ContainerLaunchContext.newInstance(Map[String, LocalResource]().asJava,
-      Map[String, String]().asJava,
-      command.asJava,
-      null,
-      null,
-      null)
-    
-    nmClientAsync.startContainerAsync(container, ctx)
-  }
-}*/
   
   def getAppEnv: Map[String, String] = {
     val appMasterEnv = new java.util.HashMap[String,String]
@@ -370,7 +388,7 @@ class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync,
   def getFs = FileSystem.get(yarnConf)  
   def getHdfs = new Path(getFs.getHomeDirectory, "/user/gearpump/jars/")
 
-  def getAMLocalResourcesMap: Map[String, LocalResource] = {
+  private[this] def getAMLocalResourcesMap: Map[String, LocalResource] = {
       getFs.listStatus(getHdfs).map(fileStatus => {
       val localResouceFile = Records.newRecord(classOf[LocalResource])
       val path = ConverterUtils.getYarnUrlFromPath(fileStatus.getPath)
@@ -384,21 +402,10 @@ class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync,
     }).toMap
   }
   
-  def getCommand: String = {
-    val exe = appConfig.getEnv(GEARPUMPMASTER_COMMAND)
-    val main = appConfig.getEnv(GEARPUMPMASTER_MAIN)
-    val logdir = "/tmp" 
-    //ApplicationConstants.LOG_DIR_EXPANSION_VAR
-    val command = exe + " " + main + " -ip 127.0.0.1 -port 3000" +
-    " 1>" + logdir +"/" + ApplicationConstants.STDOUT +
-    " 2>" + logdir +"/" + ApplicationConstants.STDERR
-    LOG.info("Will try to lunch command : " + command)
-    command
-  }
   
-  def launch(container: Container) {
-    val ctx = Records.newRecord(classOf[ContainerLaunchContext])
-    ctx.setCommands(Seq(getCommand))
+  def launch(container: Container) {    
+/*    val ctx = Records.newRecord(classOf[ContainerLaunchContext])
+    ctx.setCommands(Seq(command))
     val environment = getAppEnv
     environment.foreach(pair => {
       val (key, value) = pair
@@ -410,7 +417,8 @@ class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync,
     val dob = new DataOutputBuffer
     credentials.writeTokenStorageToStream(dob)
     ctx.setTokens(ByteBuffer.wrap(dob.getData))
-    nmClientAsync.startContainerAsync(container, ctx)
+*/    
+    nmClientAsync.startContainerAsync(container, YarnClientUtil.getContext(yarnConf, container, command))
   }
 }
 
@@ -442,7 +450,6 @@ object YarnAM extends App with ArgumentsParser {
       val config = ConfigFactory.load
       implicit val system = ActorSystem("GearPumpAM", config)
       LOG.info("Parsing input arguments")
-      println("[println]Parsing input arguments")
       val appConfig = new AppConfig(parse(args), config)
       
       LOG.info("Creating YarnAMActor")
@@ -454,7 +461,6 @@ object YarnAM extends App with ArgumentsParser {
       system.actorOf(Props(classOf[YarnAMActor], appConfig, yarnConfiguration), "GearPumpAMActor")
       system.awaitTermination()
       LOG.info("Shutting down")
-      println("[println]Shutting down")
       system.shutdown()
     } catch {
       case throwable: Throwable =>
@@ -467,3 +473,4 @@ object YarnAM extends App with ArgumentsParser {
   apply(args)
 
 }
+

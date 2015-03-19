@@ -55,7 +55,7 @@ trait ClientAPI {
   def getYarnConf: YarnConfiguration
   def getAppEnv: Map[String, String]
   def getAMCapability: Resource
-  def getAMLocalResourcesMap: Map[String, LocalResource]
+  //def getAMLocalResourcesMap: Map[String, LocalResource]
   def monitorAM(appContext: ApplicationSubmissionContext): Unit
   def uploadAMResourcesToHDFS(): Unit
 }
@@ -180,7 +180,7 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
     capability
   }
 
-  def getAMLocalResourcesMap: Map[String, LocalResource] = {
+/*  def getAMLocalResourcesMap: Map[String, LocalResource] = {
     getFs.listStatus(getHdfs).map(fileStatus => {
       val localResouceFile = Records.newRecord(classOf[LocalResource])
       val path = ConverterUtils.getYarnUrlFromPath(fileStatus.getPath)
@@ -193,7 +193,7 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
       fileStatus.getPath.getName -> localResouceFile
     }).toMap
   }
-  
+*/  
   def clusterResources: ClusterResources = {
     val nodes:Seq[NodeReport] = yarnClient.getNodeReports(NodeState.RUNNING)
     nodes.foldLeft(ClusterResources(0L, 0, Map.empty[String, Long]))((clusterResources, nodeReport) => {
