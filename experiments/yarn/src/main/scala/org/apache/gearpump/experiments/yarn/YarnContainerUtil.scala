@@ -1,3 +1,21 @@
+/*-
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.apache.gearpump.experiments.yarn
 
 import org.apache.gearpump.util.LogUtil
@@ -22,12 +40,15 @@ import org.apache.hadoop.io.DataOutputBuffer
 import java.nio.ByteBuffer
 
 
-object YarnClientUtil {
+object YarnContainerUtil {
   val LOG: Logger = LogUtil.getLogger(getClass)
+  
+  //TODO: move to config
   val HDFS_JARS_DIR = "/user/gearpump/jars/"
   
   def getFs(yarnConf: YarnConfiguration) = FileSystem.get(yarnConf)  
-  def getHdfs(yarnConf: YarnConfiguration) = new Path(FileSystem.get(yarnConf).getHomeDirectory, HDFS_JARS_DIR)
+  
+  def getHdfsPath(yarnConf: YarnConfiguration) = new Path(getFs(yarnConf).getHomeDirectory, HDFS_JARS_DIR)
 
   def getAppEnv(yarnConf: YarnConfiguration): Map[String, String] = {
     val appMasterEnv = new java.util.HashMap[String,String]
@@ -45,8 +66,8 @@ object YarnClientUtil {
   }
 
   def getAMLocalResourcesMap(yarnConf: YarnConfiguration): Map[String, LocalResource] = {
-      val hdfs = getHdfs(yarnConf)
-      getFs(yarnConf).listStatus(hdfs).map(fileStatus => {
+      val hdfsPath = getHdfsPath(yarnConf)
+      getFs(yarnConf).listStatus(hdfsPath).map(fileStatus => {
       val localResouceFile = Records.newRecord(classOf[LocalResource])
       val path = ConverterUtils.getYarnUrlFromPath(fileStatus.getPath)
       LOG.info(s"local resource path=${path.getFile}")
@@ -59,22 +80,27 @@ object YarnClientUtil {
     }).toMap
   }
 
-  def getContext(yarnConf: YarnConfiguration, container: Container, command:String): ContainerLaunchContext = {    
+  def getContainerContext(yarnConf: YarnConfiguration, command:String): ContainerLaunchContext = {    
     val ctx = Records.newRecord(classOf[ContainerLaunchContext])
-    ctx.setCommands(Seq(command))
-    
-    val environment = getAppEnv(yarnConf) 
-    environment.foreach(pair => {
-      val (key, value) = pair
-      LOG.info(s"getAppEnv key=$key value=$value")
-    })
-    ctx.setEnvironment(environment)
+    ctx.setCommands(Seq(command)) 
+    ctx.setEnvironment(getAppEnv(yarnConf))
     ctx.setLocalResources(getAMLocalResourcesMap(yarnConf))
-    val credentials = UserGroupInformation.getCurrentUser.getCredentials
-    val dob = new DataOutputBuffer
-    credentials.writeTokenStorageToStream(dob)
-    ctx.setTokens(ByteBuffer.wrap(dob.getData))
+    ctx.setTokens(getToken)
     ctx
   }
 
+  def getToken():ByteBuffer = {
+    val credentials = UserGroupInformation.getCurrentUser.getCredentials
+    val dob = new DataOutputBuffer
+    credentials.writeTokenStorageToStream(dob)
+    ByteBuffer.wrap(dob.getData)
+  }
+  
+  private def logEnvironmentVars(environment: Map[String, String]) {
+    environment.foreach(pair => {
+    val (key, value) = pair
+    LOG.info(s"getAppEnv key=$key value=$value")
+  })
+ 
+  }
 }

@@ -115,7 +115,7 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
       LOG.info(s"Launching containter: containerId :  ${container.getId}, host ip : ${container.getNodeId.getHost}")
       val command = getCommand(getCliOptsForMasterAddr(container.getNodeId.getHost, MASTER_PORT))
       LOG.info("Launching command : " + command)
-      context.actorOf(Props(classOf[ContainerLauncherActor], container, nmClientAsync, nmCallbackHandler, appConfig, yarnConf, command))
+      context.actorOf(Props(classOf[ContainerLauncherActor], container, nmClientAsync, yarnConf, command))
     })
     
   }
@@ -358,11 +358,11 @@ class RMCallbackHandlerActor(appConfig: AppConfig, yarnAM: ActorRef) extends Act
 
 }
 
-class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync, containerListener: NMCallbackHandler, appConfig: AppConfig, yarnConf: YarnConfiguration, command: String) extends Actor {
+class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync,  yarnConf: YarnConfiguration, command: String) extends Actor {
   val LOG: Logger = LogUtil.getLogger(getClass)  
   
   override def preStart(): Unit = {
-    launch(container)
+    nmClientAsync.startContainerAsync(container, YarnContainerUtil.getContainerContext(yarnConf, command))
   }
 
   override def receive: Receive = {
@@ -370,56 +370,6 @@ class ContainerLauncherActor(container: Container, nmClientAsync: NMClientAsync,
       LOG.error(s"Unknown message received")
   }
   
-  def getAppEnv: Map[String, String] = {
-    val appMasterEnv = new java.util.HashMap[String,String]
-    for (
-      c <- yarnConf.getStrings(
-        YarnConfiguration.YARN_APPLICATION_CLASSPATH,
-        YarnConfiguration.DEFAULT_YARN_APPLICATION_CLASSPATH.mkString(","))
-    ) {
-      Apps.addToEnvironment(appMasterEnv, Environment.CLASSPATH.name(),
-        c.trim(), File.pathSeparator)
-    }
-    Apps.addToEnvironment(appMasterEnv, Environment.CLASSPATH.name(),
-      Environment.PWD.$()+File.separator+"*", File.pathSeparator)
-    appMasterEnv.toMap
-  }
-
-  def getFs = FileSystem.get(yarnConf)  
-  def getHdfs = new Path(getFs.getHomeDirectory, "/user/gearpump/jars/")
-
-  private[this] def getAMLocalResourcesMap: Map[String, LocalResource] = {
-      getFs.listStatus(getHdfs).map(fileStatus => {
-      val localResouceFile = Records.newRecord(classOf[LocalResource])
-      val path = ConverterUtils.getYarnUrlFromPath(fileStatus.getPath)
-      LOG.info(s"local resource path=${path.getFile}")
-      localResouceFile.setResource(path)
-      localResouceFile.setType(LocalResourceType.FILE)
-      localResouceFile.setSize(fileStatus.getLen)
-      localResouceFile.setTimestamp(fileStatus.getModificationTime)
-      localResouceFile.setVisibility(LocalResourceVisibility.APPLICATION)
-      fileStatus.getPath.getName -> localResouceFile
-    }).toMap
-  }
-  
-  
-  def launch(container: Container) {    
-/*    val ctx = Records.newRecord(classOf[ContainerLaunchContext])
-    ctx.setCommands(Seq(command))
-    val environment = getAppEnv
-    environment.foreach(pair => {
-      val (key, value) = pair
-      LOG.info(s"getAppEnv key=$key value=$value")
-    })
-    ctx.setEnvironment(getAppEnv)
-    ctx.setLocalResources(getAMLocalResourcesMap)
-    val credentials = UserGroupInformation.getCurrentUser.getCredentials
-    val dob = new DataOutputBuffer
-    credentials.writeTokenStorageToStream(dob)
-    ctx.setTokens(ByteBuffer.wrap(dob.getData))
-*/    
-    nmClientAsync.startContainerAsync(container, YarnClientUtil.getContext(yarnConf, container, command))
-  }
 }
 
 object YarnAM extends App with ArgumentsParser {
@@ -432,15 +382,15 @@ object YarnAM extends App with ArgumentsParser {
   )
 
   /**
-   * For unknown yet reasons this is needed for my local pseudo distributed cluster.   
+   * For yet unknown reason this is needed for my local pseudo distributed cluster.   
    * 
    */
   def getForcedDefaultYarnConf:Configuration = {
       val hadoopConf  = new Configuration(true)
-      val configDir = "/home/pancho/hadoop/conf/";
-      Configuration.addDefaultResource(configDir + "core-site.xml")
-      Configuration.addDefaultResource(configDir + "hdfs-site")
-      Configuration.addDefaultResource(configDir + "yarn-site.xml")
+      val configDir = System.getenv("HADOOP_CONF_DIR")
+      Configuration.addDefaultResource(configDir + "/core-site.xml")
+      Configuration.addDefaultResource(configDir + "/hdfs-site")
+      Configuration.addDefaultResource(configDir + "/yarn-site.xml")
       new YarnConfiguration(hadoopConf)
   }
   
@@ -449,15 +399,11 @@ object YarnAM extends App with ArgumentsParser {
       implicit val timeout = Timeout(5, TimeUnit.SECONDS)
       val config = ConfigFactory.load
       implicit val system = ActorSystem("GearPumpAM", config)
-      LOG.info("Parsing input arguments")
       val appConfig = new AppConfig(parse(args), config)
-      
-      LOG.info("Creating YarnAMActor")
-      LOG.info("HADOOP_CONF_DIR : " + System.getenv("HADOOP_CONF_DIR"))
-      val classpath = System.getProperty("java.class.path") + ":/home/pancho/hadoop/conf/yarn-site.xml"
-      System.setProperty("java.class.path", classpath)     
       val yarnConfiguration = getForcedDefaultYarnConf
+      LOG.info("HADOOP_CONF_DIR: " + System.getenv("HADOOP_CONF_DIR"))
       LOG.info("Yarn config (yarn.resourcemanager.hostname): " + yarnConfiguration.get("yarn.resourcemanager.hostname"))
+      LOG.info("Creating YarnAMActor")
       system.actorOf(Props(classOf[YarnAMActor], appConfig, yarnConfiguration), "GearPumpAMActor")
       system.awaitTermination()
       LOG.info("Shutting down")

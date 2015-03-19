@@ -49,13 +49,11 @@ Features for YARNClient
 
 
 trait ClientAPI {
-  def configureAMLaunchContext: ContainerLaunchContext
   def getConfiguration: AppConfig
   def getCommand: String
   def getYarnConf: YarnConfiguration
   def getAppEnv: Map[String, String]
   def getAMCapability: Resource
-  //def getAMLocalResourcesMap: Map[String, LocalResource]
   def monitorAM(appContext: ApplicationSubmissionContext): Unit
   def uploadAMResourcesToHDFS(): Unit
 }
@@ -144,24 +142,6 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
     }))
   }
 
-  def configureAMLaunchContext: ContainerLaunchContext = {
-    //uploadAMResourcesToHDFS()
-    val amContainer = Records.newRecord(classOf[ContainerLaunchContext])
-    amContainer.setCommands(Seq(getCommand))
-    val environment = getAppEnv
-    environment.foreach(pair => {
-      val (key, value) = pair
-      LOG.info(s"getAppEnv key=$key value=$value")
-    })
-    amContainer.setEnvironment(getAppEnv)
-    amContainer.setLocalResources(getAMLocalResourcesMap)
-    val credentials = UserGroupInformation.getCurrentUser.getCredentials
-    val dob = new DataOutputBuffer
-    credentials.writeTokenStorageToStream(dob)
-    amContainer.setTokens(ByteBuffer.wrap(dob.getData))
-    amContainer
-  }
-
   def getAMCapability: Resource = {
     val capability = Records.newRecord(classOf[Resource])
     val memory = getEnv(YARNAPPMASTER_MEMORY).trim
@@ -180,20 +160,6 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
     capability
   }
 
-/*  def getAMLocalResourcesMap: Map[String, LocalResource] = {
-    getFs.listStatus(getHdfs).map(fileStatus => {
-      val localResouceFile = Records.newRecord(classOf[LocalResource])
-      val path = ConverterUtils.getYarnUrlFromPath(fileStatus.getPath)
-      LOG.info(s"local resource path=${path.getFile}")
-      localResouceFile.setResource(path)
-      localResouceFile.setType(LocalResourceType.FILE)
-      localResouceFile.setSize(fileStatus.getLen)
-      localResouceFile.setTimestamp(fileStatus.getModificationTime)
-      localResouceFile.setVisibility(LocalResourceVisibility.APPLICATION)
-      fileStatus.getPath.getName -> localResouceFile
-    }).toMap
-  }
-*/  
   def clusterResources: ClusterResources = {
     val nodes:Seq[NodeReport] = yarnClient.getNodeReports(NodeState.RUNNING)
     nodes.foldLeft(ClusterResources(0L, 0, Map.empty[String, Long]))((clusterResources, nodeReport) => {
@@ -220,19 +186,17 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
       "Application " + appId + " finished with" +
         " state " + appState +
         " at " + appReport.getFinishTime)
-
   }
 
 
   def deploy() = {
     LOG.info("Starting AM")
-    print("starting AM")
+    //uploadAMResourcesToHDFS()
     yarnClient.init(yarnConf)
     yarnClient.start()
     val appContext = yarnClient.createApplication.getApplicationSubmissionContext
-    
     appContext.setApplicationName(getEnv(YARNAPPMASTER_NAME))
-    appContext.setAMContainerSpec(configureAMLaunchContext)
+    appContext.setAMContainerSpec(YarnContainerUtil.getContainerContext(yarnConf, getCommand))
     appContext.setResource(getAMCapability)
     appContext.setQueue(getEnv(YARNAPPMASTER_QUEUE))
     
