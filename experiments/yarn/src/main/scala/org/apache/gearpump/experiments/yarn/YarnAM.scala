@@ -59,7 +59,18 @@ object Actions {
   case class Failed(throwable: Throwable) extends Reason
   case object ShutdownRequest extends Reason
   case object AllRequestedContainersCompleted extends Reason
-    
+  
+  sealed trait ContainerType
+  case object Master extends ContainerType
+  case object Woker extends ContainerType
+  case object Service extends ContainerType
+
+  sealed trait ContainerState
+  case object Requested extends ContainerState
+  case object Completed extends ContainerState
+  case object Allocated extends ContainerState
+  //failed?
+  
   case class LaunchMasterContainers(containers: List[Container])
   case class LaunchWorkerContainers(containers: List[Container])
   case class LaunchServiceContainer(containers: List[Container])
@@ -68,6 +79,7 @@ object Actions {
   case class RMHandlerContainerStats(allocated: Int, completed: Int, failed: Int)
   case class RegisterAMMessage(appHostName: String, appHostPort: Int, appTrackingUrl: String)
   case class AMStatusMessage(appStatus: FinalApplicationStatus, appMessage: String, appTrackingUrl: String)
+  case class ContainerInfo(container:Container, containerType: ContainerType, launchCommand: String => String)
 }
 
 /**
@@ -82,13 +94,13 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
   val nmClientAsync = createNMClient(nmCallbackHandler)
   val rmCallbackHandler = context.actorOf(Props(classOf[RMCallbackHandlerActor], appConfig, self), "rmCallbackHandler")
   val amRMClient = context.actorOf(Props(classOf[AMRMClientAsyncActor], yarnConf, self), "amRMClient")
-  
+  val containersStatus = collection.mutable.Map[Long, ContainerInfo]()
   
   override def receive: Receive = {
     case containerRequest: ContainerRequestMessage =>
       LOG.info("Received ContainerRequestMessage")
       amRMClient ! containerRequest
-    case rmCallbackHandler: RMCallbackHandler =>
+    case rmCYallbackHandler: RMCallbackHandler =>
       LOG.info("Received RMCallbackHandler")
       amRMClient forward rmCallbackHandler
       val host = InetAddress.getLocalHost().getHostName();
@@ -100,6 +112,7 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
       LOG.info("Received RegisterApplicationMasterResponse")
       requestContainers(amResponse)
     case launchMasterContainers: LaunchMasterContainers =>
+      containersStatus.con
       LOG.info("Received LaunchMasterContainers")
       launchContainers(launchMasterContainers.containers, getMasterCommand)
     case launchWorkerContainers: LaunchWorkerContainers =>
@@ -117,7 +130,6 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
       LOG.info("Launching command : " + command)
       context.actorOf(Props(classOf[ContainerLauncherActor], container, nmClientAsync, yarnConf, command))
     })
-    
   }
   /**
    * TODO: ip and port should be constants   
@@ -157,10 +169,13 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
 
   private[this] def requestContainers(registrationResponse: RegisterApplicationMasterResponse) {
     val previousContainersCount = registrationResponse.getContainersFromPreviousAttempts.size
+    
     LOG.info(s"Previous container count : $previousContainersCount")
-    val containersToRequestCount = appConfig.getEnv(CONTAINER_COUNT).toInt - previousContainersCount
-
-    (1 to containersToRequestCount).foreach(requestId => {
+    if(previousContainersCount > 0) {
+      LOG.warn("Previous container count > 0, can't do anything with it")
+    }
+    
+    (1 to appConfig.getEnv(CONTAINER_COUNT).toInt).foreach(requestId => {
       amRMClient ! ContainerRequestMessage(appConfig.getEnv(CONTAINER_MEMORY).toInt, appConfig.getEnv(CONTAINER_VCORES).toInt)
     })
 
@@ -233,6 +248,23 @@ object NMCallbackHandler {
 class AMRMClientAsyncActor(yarnConf: YarnConfiguration, yarnAM: ActorRef) extends Actor {
   val LOG: Logger = LogUtil.getLogger(getClass)
   var client: AMRMClientAsync[ContainerRequest] = _
+  
+  override def receive: Receive = {
+    case rmCallbackHandler: RMCallbackHandler =>
+      LOG.info("Received RMCallbackHandler")
+      client = start(rmCallbackHandler)
+    case containerRequest: ContainerRequestMessage =>
+      LOG.info("Received ContainerRequestMessage")
+      client.addContainerRequest(createContainerRequest(containerRequest))
+    case amAttr: RegisterAMMessage =>
+      LOG.info(s"Received RegisterAMMessage! ${amAttr.appHostName}:${amAttr.appHostPort}${amAttr.appTrackingUrl}")
+      val response = client.registerApplicationMaster(amAttr.appHostName, amAttr.appHostPort, amAttr.appTrackingUrl)
+      LOG.info("got response : " + response)
+      yarnAM ! response
+    case amStatus: AMStatusMessage =>
+      LOG.info("Received AMStatusMessage")
+      client.unregisterApplicationMaster(amStatus.appStatus, amStatus.appMessage, amStatus.appTrackingUrl)
+  }
 
   private[this] def createContainerRequest(attrs: ContainerRequestMessage): ContainerRequest = {
     LOG.info("creating ContainerRequest")
@@ -255,24 +287,6 @@ class AMRMClientAsyncActor(yarnConf: YarnConfiguration, yarnAM: ActorRef) extend
   override def preStart(): Unit = {
     LOG.info("preStart")
   }
-
-  override def receive: Receive = {
-    case rmCallbackHandler: RMCallbackHandler =>
-      LOG.info("Received RMCallbackHandler")
-      client = start(rmCallbackHandler)
-    case containerRequest: ContainerRequestMessage =>
-      LOG.info("Received ContainerRequestMessage")
-      client.addContainerRequest(createContainerRequest(containerRequest))
-    case amAttr: RegisterAMMessage =>
-      LOG.info(s"Received RegisterAMMessage! ${amAttr.appHostName}:${amAttr.appHostPort}${amAttr.appTrackingUrl}")
-      val response = client.registerApplicationMaster(amAttr.appHostName, amAttr.appHostPort, amAttr.appTrackingUrl)
-      LOG.info("got response : " + response)
-      yarnAM ! response
-    case amStatus: AMStatusMessage =>
-      LOG.info("Received AMStatusMessage")
-      client.unregisterApplicationMaster(amStatus.appStatus, amStatus.appMessage, amStatus.appTrackingUrl)
-  }
-
 }
 
 class RMCallbackHandler(appConfig: AppConfig, am: ActorRef) extends AMRMClientAsync.CallbackHandler {
@@ -286,6 +300,7 @@ class RMCallbackHandler(appConfig: AppConfig, am: ActorRef) extends AMRMClientAs
 
   def onContainersAllocated(allocatedContainers: java.util.List[Container]) {
     LOG.info(s"Got response from RM for container request, allocatedCnt=${allocatedContainers.size}")
+    
     allocatedContainersCount.addAndGet(allocatedContainers.size)
     am ! LaunchMasterContainers(allocatedContainers.asScala.toList)
   }
@@ -419,4 +434,6 @@ object YarnAM extends App with ArgumentsParser {
   apply(args)
 
 }
+
+
 
