@@ -98,8 +98,9 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
   
   override def receive: Receive = {
     case containerRequest: ContainerRequestMessage =>
-      LOG.info("Received ContainerRequestMessage")
+      LOG.info("AM: Received ContainerRequestMessage")
       amRMClient ! containerRequest
+    
     case rmCYallbackHandler: RMCallbackHandler =>
       LOG.info("Received RMCallbackHandler")
       amRMClient forward rmCallbackHandler
@@ -108,16 +109,15 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
       val target = host + ":" + port
       val addr = NetUtils.createSocketAddr(target);
       amRMClient ! RegisterAMMessage(addr.getHostName, port, "")
+    
     case amResponse: RegisterApplicationMasterResponse =>
       LOG.info("Received RegisterApplicationMasterResponse")
       requestContainers(amResponse)
+
     case launchMasterContainers: LaunchMasterContainers =>
-      containersStatus.con
       LOG.info("Received LaunchMasterContainers")
       launchContainers(launchMasterContainers.containers, getMasterCommand)
-    case launchWorkerContainers: LaunchWorkerContainers =>
-      LOG.info("Received LaunchWorkerContainers")
-      launchContainers(launchWorkerContainers.containers, getWorkerCommand)
+    
     case done: RMHandlerDone =>
       cleanUp(done)
   }
