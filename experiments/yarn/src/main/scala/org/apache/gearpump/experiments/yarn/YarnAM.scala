@@ -101,7 +101,7 @@ class YarnAMActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Act
       LOG.info("AM: Received ContainerRequestMessage")
       amRMClient ! containerRequest
     
-    case rmCYallbackHandler: RMCallbackHandler =>
+    case rmCallbackHandler: RMCallbackHandler =>
       LOG.info("Received RMCallbackHandler")
       amRMClient forward rmCallbackHandler
       val host = InetAddress.getLocalHost().getHostName();
@@ -258,6 +258,7 @@ class AMRMClientAsyncActor(yarnConf: YarnConfiguration, yarnAM: ActorRef) extend
       client.addContainerRequest(createContainerRequest(containerRequest))
     case amAttr: RegisterAMMessage =>
       LOG.info(s"Received RegisterAMMessage! ${amAttr.appHostName}:${amAttr.appHostPort}${amAttr.appTrackingUrl}")
+      LOG.info("client : " + client)
       val response = client.registerApplicationMaster(amAttr.appHostName, amAttr.appHostPort, amAttr.appTrackingUrl)
       LOG.info("got response : " + response)
       yarnAM ! response
