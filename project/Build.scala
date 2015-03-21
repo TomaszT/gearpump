@@ -170,7 +170,7 @@ object Build extends sbt.Build {
                         "master" -> "org.apache.gearpump.cluster.main.Master",
                         "worker" -> "org.apache.gearpump.cluster.main.Worker",
                         "services" -> "org.apache.gearpump.cluster.main.Services",
-                        "yarnclient" -> "org.apache.gearpump.experiments.yarn.Client"
+                        "yarnclient" -> "org.apache.gearpump.experiments.yarn.client.Client"
                        ),
         packJvmOpts := Map("local" -> Seq("-DlogFilename=local"),
                            "master" -> Seq("-DlogFilename=master"),
