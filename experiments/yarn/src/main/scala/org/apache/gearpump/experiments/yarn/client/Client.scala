@@ -15,10 +15,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.gearpump.experiments.yarn
+package org.apache.gearpump.experiments.yarn.client
 
 import java.io._
-
 import com.typesafe.config.ConfigFactory
 import org.apache.gearpump.cluster.main.{ArgumentsParser, CLIOption}
 import org.apache.gearpump.util.LogUtil
@@ -30,9 +29,20 @@ import org.apache.hadoop.yarn.client.api.YarnClient
 import org.apache.hadoop.yarn.conf.YarnConfiguration
 import org.apache.hadoop.yarn.util.{Apps, Records}
 import org.slf4j.Logger
-
 import scala.collection.JavaConversions._
 import scala.util.{Failure, Success, Try}
+import org.apache.gearpump.experiments.yarn.AppConfig
+import org.apache.gearpump.experiments.yarn.EnvVars.EXCLUDE_JARS
+import org.apache.gearpump.experiments.yarn.EnvVars.HDFS_PATH
+import org.apache.gearpump.experiments.yarn.EnvVars.JARS
+import org.apache.gearpump.experiments.yarn.EnvVars.YARNAPPMASTER_COMMAND
+import org.apache.gearpump.experiments.yarn.EnvVars.YARNAPPMASTER_MAIN
+import org.apache.gearpump.experiments.yarn.EnvVars.YARNAPPMASTER_MEMORY
+import org.apache.gearpump.experiments.yarn.EnvVars.YARNAPPMASTER_NAME
+import org.apache.gearpump.experiments.yarn.EnvVars.YARNAPPMASTER_QUEUE
+import org.apache.gearpump.experiments.yarn.EnvVars.YARNAPPMASTER_VCORES
+import org.apache.gearpump.experiments.yarn.YarnContainerUtil
+
 
 /**
 Features for YARNClient
@@ -56,7 +66,7 @@ trait ClientAPI {
 }
 
 class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: YarnClient) extends ClientAPI {
-  import org.apache.gearpump.experiments.yarn.Client._
+  import org.apache.gearpump.experiments.yarn.client.Client._
   import org.apache.gearpump.experiments.yarn.EnvVars._
 
   val LOG: Logger = LogUtil.getLogger(getClass)
