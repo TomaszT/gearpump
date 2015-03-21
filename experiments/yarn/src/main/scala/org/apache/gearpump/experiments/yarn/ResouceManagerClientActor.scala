@@ -1,16 +1,21 @@
 package org.apache.gearpump.experiments.yarn
 
-import org.apache.hadoop.yarn.conf.YarnConfiguration
-import akka.actor._
+import org.apache.gearpump.experiments.yarn.Actions.AMStatusMessage
+import org.apache.gearpump.experiments.yarn.Actions.ContainerRequestMessage
+import org.apache.gearpump.experiments.yarn.Actions.RegisterAMMessage
+import org.apache.gearpump.experiments.yarn.master.ResourceManagerCallbackHandler
+import org.apache.gearpump.experiments.yarn.master.YarnApplicationMaster.TIME_INTERVAL
 import org.apache.gearpump.util.LogUtil
-import org.apache.hadoop.yarn.client.api.async.AMRMClientAsync
-import org.apache.hadoop.yarn.client.api.AMRMClient.ContainerRequest
-import org.apache.gearpump.experiments.yarn.Actions._
-import org.apache.hadoop.yarn.util.Records
 import org.apache.hadoop.yarn.api.records.Priority
 import org.apache.hadoop.yarn.api.records.Resource
-import org.apache.gearpump.experiments.yarn.master.YarnAM
-import org.apache.gearpump.experiments.yarn.master.ResourceManagerCallbackHandler
+import org.apache.hadoop.yarn.client.api.AMRMClient.ContainerRequest
+import org.apache.hadoop.yarn.client.api.async.AMRMClientAsync
+import org.apache.hadoop.yarn.conf.YarnConfiguration
+import org.apache.hadoop.yarn.util.Records
+
+import akka.actor.Actor
+import akka.actor.ActorRef
+import akka.actor.actorRef2Scala
 
 class ResourceManagerClientActor(yarnConf: YarnConfiguration, yarnAM: ActorRef) extends Actor {
   val LOG = LogUtil.getLogger(getClass)
@@ -44,7 +49,7 @@ class ResourceManagerClientActor(yarnConf: YarnConfiguration, yarnAM: ActorRef) 
 
   private[this] def start(rmCallbackHandler: ResourceManagerCallbackHandler): AMRMClientAsync[ContainerRequest] = {
     LOG.info("starting AMRMClientAsync")
-    import YarnAM._
+    import YarnApplicationMaster._
     val amrmClient: AMRMClientAsync[ContainerRequest] = AMRMClientAsync.createAMRMClientAsync(TIME_INTERVAL, rmCallbackHandler)
     amrmClient.init(yarnConf)
     amrmClient.start()

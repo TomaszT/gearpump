@@ -195,7 +195,7 @@ class RMCallbackHandlerActor(appConfig: AppConfig, yarnAM: ActorRef) extends Act
 }
 
 
-object YarnAM extends App with ArgumentsParser {
+object YarnApplicationMaster extends App with ArgumentsParser {
   val LOG: Logger = LogUtil.getLogger(getClass)
   val TIME_INTERVAL = 1000
 
