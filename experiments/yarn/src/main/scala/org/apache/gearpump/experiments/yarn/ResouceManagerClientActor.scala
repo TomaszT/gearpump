@@ -12,10 +12,10 @@ import org.apache.hadoop.yarn.client.api.AMRMClient.ContainerRequest
 import org.apache.hadoop.yarn.client.api.async.AMRMClientAsync
 import org.apache.hadoop.yarn.conf.YarnConfiguration
 import org.apache.hadoop.yarn.util.Records
-
 import akka.actor.Actor
 import akka.actor.ActorRef
 import akka.actor.actorRef2Scala
+import org.apache.gearpump.experiments.yarn.master.YarnApplicationMaster
 
 class ResourceManagerClientActor(yarnConf: YarnConfiguration, yarnAM: ActorRef) extends Actor {
   val LOG = LogUtil.getLogger(getClass)
