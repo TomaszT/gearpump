@@ -111,10 +111,10 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
     case containers: LaunchContainers =>
       LOG.info("Received LaunchContainers")
       if(needMoreMasterContainersState) {
-        LOG.info("Launching more masters")
+        LOG.info(s"Launching more masters : ${containers.containers.size}")        
         launchContainers(containers.containers, getMasterCommand)        
       } else if(needMoreWorkerContainersState){ 
-        LOG.info("Launching more workers")
+        LOG.info(s"Launching more workers : ${containers.containers.size}")
         workerContainersRequested += containers.containers.size
         launchContainers(containers.containers, getWorkerCommand)
       } else {
