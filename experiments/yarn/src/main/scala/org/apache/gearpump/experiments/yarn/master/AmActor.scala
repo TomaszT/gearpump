@@ -58,6 +58,8 @@ import akka.actor.actorRef2Scala
 import akka.util.Timeout
 import akka.actor.FSM
 import org.apache.gearpump.experiments.yarn.Actions._
+import org.apache.gearpump.transport.HostPort
+import org.apache.gearpump.transport.HostPort
 
 
 /**
@@ -65,16 +67,13 @@ import org.apache.gearpump.experiments.yarn.Actions._
  */
 class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
   val LOG: Logger = LogUtil.getLogger(getClass)
-  //TODO: should be generated (case of collision), there will be more than one master
-  val MASTER_PORT = "3000"
-  val MASTER_CONTAINER_LOG_NAME = "master.log"  
-  val WORKER_CONTAINER_LOG_NAME = "worker.log"
   val nodeManagerCallbackHandler = createNodeManagerCallbackHandler
   val nodeManagerClient: NMClientAsync = createNMClient(nodeManagerCallbackHandler)
   val rmCallbackHandler = context.actorOf(Props(classOf[RMCallbackHandlerActor], appConfig, self), "rmCallbackHandler")
   val amRMClient = context.actorOf(Props(classOf[ResourceManagerClientActor], yarnConf, self), "amRMClient")
   val containersStatus = collection.mutable.Map[Long, ContainerInfo]()
   
+  var masterAddr:HostPort = _ 
   var masterContainersStarted = 0
   var workerContainersStarted = 0
   var workerContainersRequested = 0
@@ -83,7 +82,7 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
     case containerStarted: ContainerStarted =>
       LOG.info(s"Started container : ${containerStarted.containerId}") 
       if(needMoreMasterContainersState) {
-        masterContainersStarted += 1
+        masterContainersStarted += 1        
         LOG.info(s"Currently master containers started : $masterContainersStarted/${appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt}")
         requestWorkerContainersIfNeeded
       } else {
@@ -111,12 +110,13 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
     case containers: LaunchContainers =>
       LOG.info("Received LaunchContainers")
       if(needMoreMasterContainersState) {
-        LOG.info(s"Launching more masters : ${containers.containers.size}")        
-        launchContainers(containers.containers, getMasterCommand)        
+        LOG.info(s"Launching more masters : ${containers.containers.size}")
+        setMasterAddrIfNeeded(containers.containers)
+        launchMasterContainers(containers.containers)        
       } else if(needMoreWorkerContainersState){ 
         LOG.info(s"Launching more workers : ${containers.containers.size}")
         workerContainersRequested += containers.containers.size
-        launchContainers(containers.containers, getWorkerCommand)
+        launchWorkerContainers(containers.containers, masterAddr)
       } else {
         LOG.info("No more needed")
       }
@@ -125,6 +125,11 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
       LOG.info("Got RMHandlerDone")
       cleanUp(done)
   
+  }
+
+  private[this] def setMasterAddrIfNeeded(containers: List[Container]) {
+    if(masterAddr == null)
+    masterAddr = HostPort(containers.head.getNodeId.getHost, appConfig.getEnv(GEARPUMPMASTER_PORT).toInt) 
   }
 
   private[this] def needMoreMasterContainersState:Boolean = {
@@ -142,36 +147,43 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
     }
   }
 
-  private[this] def launchContainers(containers: List[Container], getCommand: String => String) {
+  private[this] def launchMasterContainers(containers: List[Container]) {
     containers.foreach(container => {
-      container.getNodeId.getHost
-      LOG.info(s"Launching containter: containerId :  ${container.getId}, host ip : ${container.getNodeId.getHost}")
-      val command = getCommand(getCliOptsForMasterAddr(container.getNodeId.getHost, MASTER_PORT))
-      LOG.info("Launching command : " + command)
-      context.actorOf(Props(classOf[ContainerLauncherActor], container, nodeManagerClient, yarnConf, command))
+      launchCommand(container, getMasterCommand(getMasterAddrCliOpt(container.getNodeId.getHost, appConfig.getEnv(GEARPUMPMASTER_PORT).toInt)))
     })
   }
-  /**
-   * TODO: ip and port should be constants   
-   */
-  private[this] def getCliOptsForMasterAddr(masterHost:String, masterPort:String): String = {
-    //ie: -ip 127.0.0.1 -port 3000
+
+  private[this] def launchWorkerContainers(containers: List[Container], masterAddr: HostPort) {
+    containers.foreach(container => {
+      launchCommand(container, getWorkerCommand(getMasterAddrCliOpt(masterAddr.host, masterAddr.port)))
+    })
+  }
+
+  private[this] def launchCommand(container: Container, command:String) {
+      LOG.info(s"Launching containter: containerId :  ${container.getId}, host ip : ${container.getNodeId.getHost}")
+      LOG.info("Launching command : " + command)
+      context.actorOf(Props(classOf[ContainerLauncherActor], container, nodeManagerClient, yarnConf, command))
+  }
+
+  private[this] def getMasterAddrCliOpt(masterHost:String, masterPort:Int): String = {
     return s"-ip $masterHost -port $masterPort"
   }
 
   private[this] def getMasterCommand(cliOpts: String): String = {
-    val exe = appConfig.getEnv(GEARPUMPMASTER_COMMAND)
-    val main = appConfig.getEnv(GEARPUMPMASTER_MAIN)
-    val command = s"$exe $main $cliOpts 2>&1 | /usr/bin/tee -a ${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/$MASTER_CONTAINER_LOG_NAME"     
-    command
+    getCommand(GEARPUMPMASTER_COMMAND, GEARPUMPMASTER_MAIN, cliOpts, GEARPUMPMASTER_LOG)
   }
 
   private[this] def getWorkerCommand(cliOpts: String): String = {
-    val exe = appConfig.getEnv(WORKER_COMMAND)
-    val main = appConfig.getEnv(WORKER_MAIN)
-    val command = s"$exe $main $cliOpts 2>&1 | /usr/bin/tee -a ${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/$WORKER_CONTAINER_LOG_NAME"     
-    command
+    getCommand(WORKER_COMMAND, WORKER_MAIN, cliOpts, WORKER_LOG)
   }
+  
+  private[this] def getCommand(exeProp: String, mainProp: String, cliOpts: String, lognameProp: String):String = {
+    val exe = appConfig.getEnv(exeProp)
+    val main = appConfig.getEnv(mainProp)
+    val logname = appConfig.getEnv(lognameProp)
+    s"$exe $main $cliOpts 2>&1 | /usr/bin/tee -a ${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/$logname"
+  }
+  
 
   private[this] def createNMClient(containerListener: NodeManagerCallbackHandler): NMClientAsync = {
     LOG.info("Creating NMClientAsync")

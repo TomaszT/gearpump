@@ -41,18 +41,21 @@ object EnvVars {
   val GEARPUMPMASTER_CONTAINERS = "gearpump.master.containers"
   val GEARPUMPMASTER_MEMORY = "gearpump.master.memory"
   val GEARPUMPMASTER_VCORES = "gearpump.master.vcores"
+  val GEARPUMPMASTER_LOG = "gearpump.master.logname"
   
   val WORKER_COMMAND = "gearpump.worker.command"
   val WORKER_MAIN = "gearpump.worker.main"
   val WORKER_CONTAINERS = "gearpump.worker.containers"
   val WORKER_MEMORY = "gearpump.worker.memory"
   val WORKER_VCORES = "gearpump.worker.vcores"
+  val WORKER_LOG = "gearpump.worker.logname"
   
   val SERVICES_COMMAND = "gearpump.services.command"
   val SERVICES_MAIN = "gearpump.services.main"
   val SERVICES_CONTAINERS = "gearpump.services.containers"
   val SERVICES_MEMORY = "gearpump.services.memory"
   val SERVICES_VCORES = "gearpump.services.vcores"
+  val SERVICES_LOG = "gearpump.services.logname"
   
 }
 
