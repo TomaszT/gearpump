@@ -2,6 +2,7 @@ package org.apache.gearpump.experiments.yarn
 
 import org.apache.hadoop.yarn.api.records.Container
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus
+import org.apache.hadoop.yarn.api.records.ContainerId
 
 object Actions {
   sealed trait Reason
@@ -14,13 +15,15 @@ object Actions {
   case object Woker extends ContainerType
   case object Service extends ContainerType
 
-  sealed trait ContainerState
-  case object Requested extends ContainerState
-  case object Completed extends ContainerState
-  case object Allocated extends ContainerState
-  //failed?
+  sealed trait YarnApplicationMasterState
+  case object RequestingMasters extends YarnApplicationMasterState
+  case object RequestingWorkers extends YarnApplicationMasterState
+  case object RequestingService extends YarnApplicationMasterState
   
-  case class LaunchMasterContainers(containers: List[Container])
+  sealed trait YarnApplicationMasterData
+  case object Uninitialized extends YarnApplicationMasterData
+  
+  case class LaunchContainers(containers: List[Container]) extends YarnApplicationMasterData 
   case class LaunchWorkerContainers(containers: List[Container])
   case class LaunchServiceContainer(containers: List[Container])
   case class ContainerRequestMessage(memory: Int, vCores: Int)
@@ -29,4 +32,5 @@ object Actions {
   case class RegisterAMMessage(appHostName: String, appHostPort: Int, appTrackingUrl: String)
   case class AMStatusMessage(appStatus: FinalApplicationStatus, appMessage: String, appTrackingUrl: String)
   case class ContainerInfo(container:Container, containerType: ContainerType, launchCommand: String => String)
+  case class ContainerStarted(containerId: ContainerId)
 }

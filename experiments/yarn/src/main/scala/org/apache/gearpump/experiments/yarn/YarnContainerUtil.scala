@@ -70,7 +70,7 @@ object YarnContainerUtil {
       getFs(yarnConf).listStatus(hdfsPath).map(fileStatus => {
       val localResouceFile = Records.newRecord(classOf[LocalResource])
       val path = ConverterUtils.getYarnUrlFromPath(fileStatus.getPath)
-      LOG.info(s"local resource path=${path.getFile}")
+      //LOG.info(s"local resource path=${path.getFile}")
       localResouceFile.setResource(path)
       localResouceFile.setType(LocalResourceType.FILE)
       localResouceFile.setSize(fileStatus.getLen)

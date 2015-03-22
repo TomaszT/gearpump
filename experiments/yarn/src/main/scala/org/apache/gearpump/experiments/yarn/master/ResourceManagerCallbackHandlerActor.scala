@@ -7,7 +7,6 @@ import org.apache.gearpump.util.LogUtil
 import org.apache.hadoop.yarn.conf.YarnConfiguration
 import akka.actor._
 import org.apache.gearpump.experiments.yarn.AppConfig
-import org.apache.gearpump.experiments.yarn.master.ResourceManagerCallbackHandler
 
 class ResourceManagerCallbackHandlerActor(appConfig: AppConfig, yarnAM: ActorRef) extends Actor {
   val LOG = LogUtil.getLogger(getClass)

@@ -22,13 +22,13 @@ class ResourceManagerCallbackHandler(appConfig: AppConfig, am: ActorRef) extends
   val allocatedContainersCount = new AtomicInteger(0)
   val requestedContainersCount = new AtomicInteger(0)
 
-  def getProgress: Float = completedContainersCount.get / appConfig.getEnv(CONTAINER_COUNT).toInt
+  def getProgress: Float = completedContainersCount.get / appConfig.getEnv(WORKER_CONTAINERS).toInt
 
   def onContainersAllocated(allocatedContainers: java.util.List[Container]) {
     LOG.info(s"Got response from RM for container request, allocatedCnt=${allocatedContainers.size}")
     
     allocatedContainersCount.addAndGet(allocatedContainers.size)
-    am ! LaunchMasterContainers(allocatedContainers.asScala.toList)
+    am ! LaunchContainers(allocatedContainers.asScala.toList)
   }
 
   def onContainersCompleted(completedContainers: java.util.List[ContainerStatus]) {
@@ -54,14 +54,16 @@ class ResourceManagerCallbackHandler(appConfig: AppConfig, am: ActorRef) extends
     })
 
     // request more containers if any failed
-    val requestCount = appConfig.getEnv(CONTAINER_COUNT).toInt - requestedContainersCount.get
+    val containerCount = appConfig.getEnv(WORKER_CONTAINERS).toInt + appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt
+    val requestCount = containerCount - requestedContainersCount.get
     requestedContainersCount.addAndGet(requestCount)
 
+    //todo:wont work with non uniform containers
     (0 until requestCount).foreach(request => {
-      am ! ContainerRequestMessage(appConfig.getEnv(CONTAINER_MEMORY).toInt, appConfig.getEnv(CONTAINER_VCORES).toInt)
+      am ! ContainerRequestMessage(containerCount, appConfig.getEnv(GEARPUMPMASTER_VCORES).toInt)
     })
 
-    if (completedContainersCount.get == appConfig.getEnv(CONTAINER_COUNT).toInt) {
+    if (completedContainersCount.get == containerCount) {
       am ! RMHandlerDone(AllRequestedContainersCompleted, RMHandlerContainerStats(allocatedContainersCount.get, completedContainersCount.get, failedContainersCount.get))
     }
 

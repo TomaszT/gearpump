@@ -1,19 +1,23 @@
 package org.apache.gearpump.experiments.yarn
 
-import org.apache.hadoop.yarn.client.api.async.NMClientAsync
-import org.apache.hadoop.yarn.api.records.ContainerId
 import java.nio.ByteBuffer
-import org.apache.hadoop.yarn.api.records.ContainerStatus
-import org.slf4j.Logger
+
+import org.apache.gearpump.experiments.yarn.Actions._
 import org.apache.gearpump.util.LogUtil
+import org.apache.hadoop.yarn.api.records.ContainerId
+import org.apache.hadoop.yarn.api.records.ContainerStatus
+import org.apache.hadoop.yarn.client.api.async.NMClientAsync
+import org.slf4j.Logger
+
+import akka.actor.ActorRef
 
 
 
-class NodeManagerCallbackHandler() extends NMClientAsync.CallbackHandler {
+class NodeManagerCallbackHandler(am: ActorRef) extends NMClientAsync.CallbackHandler {
   val LOG = LogUtil.getLogger(getClass)
-
   def onContainerStarted(containerId: ContainerId, allServiceResponse: java.util.Map[String, ByteBuffer]) {
     LOG.info(s"Container started : $containerId, " + allServiceResponse)
+      am ! ContainerStarted(containerId)
   }
   
   def onContainerStatusReceived(containerId: ContainerId, containerStatus: ContainerStatus) {
@@ -35,8 +39,4 @@ class NodeManagerCallbackHandler() extends NMClientAsync.CallbackHandler {
   def onStopContainerError(containerId: ContainerId, throwable: Throwable) {
     LOG.error(s"Container exception : $containerId", throwable)
   }
-}
-
-object NodeManagerCallbackHandler {
-  def apply() = new NodeManagerCallbackHandler()
 }
