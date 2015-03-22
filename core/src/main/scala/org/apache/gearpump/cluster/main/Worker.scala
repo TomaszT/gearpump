@@ -40,9 +40,10 @@ Worker extends App with ArgumentsParser {
   }
 
   def uuid = java.util.UUID.randomUUID.toString
-
-  val options = Array.empty[(String, CLIOption[Any])]
-
+  val options: Array[(String, CLIOption[Any])] = 
+    Array("ip"->CLIOption[String]("<master ip address>",required = false),
+      "port"->CLIOption("<master port>",required = false))
+  
   def start(): Unit = {
     worker()
   }
@@ -50,14 +51,9 @@ Worker extends App with ArgumentsParser {
   def worker(): Unit = {
     val id = uuid
     val system = ActorSystem(id, config)
-
-    val masterAddress = config.getStringList("gearpump.cluster.masters").asScala.map { address =>
-      val hostAndPort = address.split(":")
-      HostPort(hostAndPort(0), hostAndPort(1).toInt)
-    }
-
-    LOG.info(s"Trying to connect to masters " + masterAddress.mkString(",") + "...")
-    val masterProxy = system.actorOf(MasterProxy.props(masterAddress), MASTER)
+    val mastersAddresses = getMastersAddresses
+    LOG.info(s"Trying to connect to masters " + mastersAddresses.mkString(",") + "...")
+    val masterProxy = system.actorOf(MasterProxy.props(mastersAddresses), MASTER)
 
     system.actorOf(Props(classOf[WorkerActor], masterProxy),
       classOf[WorkerActor].getSimpleName + id)
@@ -65,5 +61,25 @@ Worker extends App with ArgumentsParser {
     system.awaitTermination()
   }
 
+  def getMasterAddressFromArgs:Iterable[HostPort] = {
+       val cmdLineConfig = parse(args)
+       if(cmdLineConfig.exists("ip") && cmdLineConfig.exists("port")) {
+         Seq(HostPort(cmdLineConfig.getString("ip"), cmdLineConfig.getInt("port")))
+       } else {
+         Seq.empty
+       }
+  }
+  
+  def getMastersAddressesFromConfig:Iterable[HostPort] = {
+    config.getStringList("gearpump.cluster.masters").asScala.map { address =>
+      val hostAndPort = address.split(":")
+      HostPort(hostAndPort(0), hostAndPort(1).toInt)
+    }
+  }
+
+  def getMastersAddresses:Iterable[HostPort] = {
+    val masterAddressFromArgs = getMasterAddressFromArgs
+    if(!masterAddressFromArgs.isEmpty) masterAddressFromArgs else getMastersAddressesFromConfig
+  }
   start()
 }
