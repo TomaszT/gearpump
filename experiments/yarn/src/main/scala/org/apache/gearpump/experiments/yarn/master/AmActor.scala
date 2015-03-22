@@ -67,26 +67,28 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
   val LOG: Logger = LogUtil.getLogger(getClass)
   //TODO: should be generated (case of collision), there will be more than one master
   val MASTER_PORT = "3000"
-  val CONTAINER_LOG_NAME = "container.log"  
+  val MASTER_CONTAINER_LOG_NAME = "master.log"  
+  val WORKER_CONTAINER_LOG_NAME = "worker.log"
   val nodeManagerCallbackHandler = createNodeManagerCallbackHandler
   val nodeManagerClient: NMClientAsync = createNMClient(nodeManagerCallbackHandler)
   val rmCallbackHandler = context.actorOf(Props(classOf[RMCallbackHandlerActor], appConfig, self), "rmCallbackHandler")
   val amRMClient = context.actorOf(Props(classOf[ResourceManagerClientActor], yarnConf, self), "amRMClient")
   val containersStatus = collection.mutable.Map[Long, ContainerInfo]()
-  var workersRequested:Boolean = false
-  var masterContainers = 0
-  var workerContainers = 0
+  
+  var masterContainersStarted = 0
+  var workerContainersStarted = 0
+  var workerContainersRequested = 0
   
   override def receive: Receive = {
     case containerStarted: ContainerStarted =>
       LOG.info(s"Started container : ${containerStarted.containerId}") 
-      if(itIsRequestingMasterContainersState) {
-        masterContainers += 1
-        LOG.info(s"Currently master containers started : $masterContainers/${appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt}")
+      if(needMoreMasterContainersState) {
+        masterContainersStarted += 1
+        LOG.info(s"Currently master containers started : $masterContainersStarted/${appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt}")
         requestWorkerContainersIfNeeded
       } else {
-        workerContainers += 1
-        LOG.info(s"Currently worker containers started : $workerContainers/${appConfig.getEnv(WORKER_CONTAINERS).toInt}")
+        workerContainersStarted += 1
+        LOG.info(s"Currently worker containers started : $workerContainersStarted/${appConfig.getEnv(WORKER_CONTAINERS).toInt}")
       }
       
     case containerRequest: ContainerRequestMessage =>
@@ -106,26 +108,35 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
       LOG.info("Received RegisterApplicationMasterResponse")
       requestMasterContainers(amResponse)
 
-    case launchMasterContainers: LaunchContainers =>
+    case containers: LaunchContainers =>
       LOG.info("Received LaunchContainers")
-      if(itIsRequestingMasterContainersState) {
-        launchContainers(launchMasterContainers.containers, getMasterCommand)
-      } else if(!workersRequested){ 
-        launchContainers(launchMasterContainers.containers, getWorkerCommand)
-        workersRequested = true
+      if(needMoreMasterContainersState) {
+        LOG.info("Launching more masters")
+        launchContainers(containers.containers, getMasterCommand)        
+      } else if(needMoreWorkerContainersState){ 
+        LOG.info("Launching more workers")
+        workerContainersRequested += containers.containers.size
+        launchContainers(containers.containers, getWorkerCommand)
+      } else {
+        LOG.info("No more needed")
       }
+      
     case done: RMHandlerDone =>
       LOG.info("Got RMHandlerDone")
       cleanUp(done)
   
   }
 
-  private[this] def itIsRequestingMasterContainersState:Boolean = {
-    masterContainers < appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt
+  private[this] def needMoreMasterContainersState:Boolean = {
+    masterContainersStarted < appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt
+  }
+
+  private[this] def needMoreWorkerContainersState:Boolean = {
+    workerContainersStarted < appConfig.getEnv(WORKER_CONTAINERS).toInt
   }
 
   private[this] def requestWorkerContainersIfNeeded { 
-    if(masterContainers == appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt) {
+    if(masterContainersStarted == appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt) {
       LOG.info("Requesting worker containers")
       requestWorkerContainers
     }
@@ -151,14 +162,14 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
   private[this] def getMasterCommand(cliOpts: String): String = {
     val exe = appConfig.getEnv(GEARPUMPMASTER_COMMAND)
     val main = appConfig.getEnv(GEARPUMPMASTER_MAIN)
-    val command = s"$exe $main $cliOpts 2>&1> ${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/$CONTAINER_LOG_NAME"     
+    val command = s"$exe $main $cliOpts 2>&1 | /usr/bin/tee -a ${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/$MASTER_CONTAINER_LOG_NAME"     
     command
   }
 
   private[this] def getWorkerCommand(cliOpts: String): String = {
     val exe = appConfig.getEnv(WORKER_COMMAND)
     val main = appConfig.getEnv(WORKER_MAIN)
-    val command = s"$exe $main $cliOpts 2>&1> ${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/$CONTAINER_LOG_NAME"     
+    val command = s"$exe $main $cliOpts 2>&1 | /usr/bin/tee -a ${ApplicationConstants.LOG_DIR_EXPANSION_VAR}/$WORKER_CONTAINER_LOG_NAME"     
     command
   }
 
@@ -279,7 +290,7 @@ object YarnApplicationMaster extends App with ArgumentsParser {
       val yarnConfiguration = getForcedDefaultYarnConf
       LOG.info("HADOOP_CONF_DIR: " + System.getenv("HADOOP_CONF_DIR"))
       LOG.info("Yarn config (yarn.resourcemanager.hostname): " + yarnConfiguration.get("yarn.resourcemanager.hostname"))
-      LOG.info("Creating AMActor v1.4")
+      LOG.info("Creating AMActor v1.5")
       system.actorOf(Props(classOf[AmActor], appConfig, yarnConfiguration), "GearPumpAMActor")
       system.awaitTermination()
       LOG.info("Shutting down")

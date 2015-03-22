@@ -32,7 +32,7 @@ class ResourceManagerCallbackHandler(appConfig: AppConfig, am: ActorRef) extends
   }
 
   def onContainersCompleted(completedContainers: java.util.List[ContainerStatus]) {
-    LOG.info(s"Got response from RM for container request, completed containers=$completedContainers.size()")
+    LOG.info(s"Got response from RM for container request, completed containers=${completedContainers.size()}")
     completedContainers.asScala.toList.foreach(containerStatus => {
       val exitStatus = containerStatus.getExitStatus
       LOG.info(s"ContainerID=$containerStatus.getContainerId(), state=$containerStatus.getState(), exitStatus=$exitStatus")
@@ -64,6 +64,7 @@ class ResourceManagerCallbackHandler(appConfig: AppConfig, am: ActorRef) extends
     })
 
     if (completedContainersCount.get == containerCount) {
+      LOG.info("completedContainersCount == containerCount, shutting down")
       am ! RMHandlerDone(AllRequestedContainersCompleted, RMHandlerContainerStats(allocatedContainersCount.get, completedContainersCount.get, failedContainersCount.get))
     }
 
