@@ -80,7 +80,7 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
   override def receive: Receive = {
     case containerStarted: ContainerStarted =>
       LOG.info(s"Started container : ${containerStarted.containerId}") 
-      if(itsRequestingMasterContainersState) {
+      if(itIsRequestingMasterContainersState) {
         masterContainers += 1
         LOG.info(s"Currently master containers started : $masterContainers/${appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt}")
         requestWorkerContainersIfNeeded
@@ -108,10 +108,11 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
 
     case launchMasterContainers: LaunchContainers =>
       LOG.info("Received LaunchContainers")
-      if(itsRequestingMasterContainersState) {
+      if(itIsRequestingMasterContainersState) {
         launchContainers(launchMasterContainers.containers, getMasterCommand)
-      } else { 
+      } else if(!workersRequested){ 
         launchContainers(launchMasterContainers.containers, getWorkerCommand)
+        workersRequested = true
       }
     case done: RMHandlerDone =>
       LOG.info("Got RMHandlerDone")
@@ -119,7 +120,7 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration) extends Actor {
   
   }
 
-  private[this] def itsRequestingMasterContainersState:Boolean = {
+  private[this] def itIsRequestingMasterContainersState:Boolean = {
     masterContainers < appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt
   }
 
