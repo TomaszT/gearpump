@@ -17,7 +17,7 @@ import akka.actor.ActorRef
 import akka.actor.actorRef2Scala
 import org.apache.gearpump.experiments.yarn.master.YarnApplicationMaster
 
-class ResourceManagerClientActor(yarnConf: YarnConfiguration, yarnAM: ActorRef) extends Actor {
+class ResourceManagerClientActor(yarnConf: YarnConfiguration) extends Actor {
   val LOG = LogUtil.getLogger(getClass)
   var client: AMRMClientAsync[ContainerRequest] = _
   
@@ -32,7 +32,7 @@ class ResourceManagerClientActor(yarnConf: YarnConfiguration, yarnAM: ActorRef) 
       LOG.info(s"Received RegisterAMMessage! ${amAttr.appHostName}:${amAttr.appHostPort}${amAttr.appTrackingUrl}")
       val response = client.registerApplicationMaster(amAttr.appHostName, amAttr.appHostPort, amAttr.appTrackingUrl)
       LOG.info("got response : " + response)
-      yarnAM ! response
+      sender ! response
     case amStatus: AMStatusMessage =>
       LOG.info("Received AMStatusMessage")
       client.unregisterApplicationMaster(amStatus.appStatus, amStatus.appMessage, amStatus.appTrackingUrl)
@@ -56,7 +56,5 @@ class ResourceManagerClientActor(yarnConf: YarnConfiguration, yarnAM: ActorRef) 
     amrmClient
   }
 
-  override def preStart(): Unit = {
-    LOG.info("preStart")
-  }
+
 }
