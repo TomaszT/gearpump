@@ -16,6 +16,8 @@ import org.apache.gearpump.experiments.yarn.Constants._
 import org.apache.gearpump.experiments.yarn.AppConfig
 
 class ResourceManagerCallbackHandler(appConfig: AppConfig, am: ActorRef) extends AMRMClientAsync.CallbackHandler {
+  import AmActorProtocol._
+
   val LOG: Logger = LogUtil.getLogger(getClass)
   val completedContainersCount = new AtomicInteger(0)
   val failedContainersCount = new AtomicInteger(0)

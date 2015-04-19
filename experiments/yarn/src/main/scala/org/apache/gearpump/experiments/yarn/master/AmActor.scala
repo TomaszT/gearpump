@@ -23,9 +23,10 @@ import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 import org.apache.gearpump.cluster.main.{ArgumentsParser, CLIOption}
-import org.apache.gearpump.experiments.yarn.Actions.{AMStatusMessage, AllRequestedContainersCompleted, ContainerInfo, ContainerRequestMessage, Failed, LaunchContainers, RMHandlerDone, RegisterAMMessage, ShutdownRequest, _}
+
 import org.apache.gearpump.experiments.yarn.CmdLineVars.{APPMASTER_IP, APPMASTER_PORT}
 import org.apache.gearpump.experiments.yarn.Constants._
+import org.apache.gearpump.experiments.yarn.master.AmActor.{RMClientActorProps, RMCallbackHandlerActorProps}
 import org.apache.gearpump.experiments.yarn.{AppConfig, NodeManagerCallbackHandler, ResourceManagerClientActor}
 import org.apache.gearpump.util.LogUtil
 import org.apache.hadoop.conf.Configuration
@@ -50,15 +51,34 @@ import org.apache.gearpump.transport.HostPort
 import org.apache.gearpump.util.Constants
 
 object AmActor {
-  def getRMCallbackHandlerActorProps(appConfig: AppConfig, amActor: ActorRef) : Props =  Props(classOf[RMCallbackHandlerActor], appConfig, amActor)
-  def getRMClientActorProps(yarnConfiguration: YarnConfiguration) : Props =  Props(classOf[ResourceManagerClientActor], yarnConfiguration)
+  case class RMCallbackHandlerActorProps(props: Props)
+  case class RMClientActorProps(props: Props)
+
+  def getRMCallbackHandlerActorProps(appConfig: AppConfig) : RMCallbackHandlerActorProps =  RMCallbackHandlerActorProps(Props(classOf[RMCallbackHandlerActor], appConfig))
+  def getRMClientActorProps(yarnConfiguration: YarnConfiguration) : RMClientActorProps =  RMClientActorProps(Props(classOf[ResourceManagerClientActor], yarnConfiguration))
 }
 
-class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandlerActorProps: (AppConfig, ActorRef) => Props, rmClientActorProps: Props) extends Actor {
+object AmActorProtocol {
+  sealed trait YarnApplicationMasterData
+  case class LaunchContainers(containers: List[Container]) extends YarnApplicationMasterData
+  case class LaunchWorkerContainers(containers: List[Container])
+  case class LaunchServiceContainer(containers: List[Container])
+  case class ContainerRequestMessage(memory: Int, vCores: Int)
+  case class RMHandlerDone(reason: Reason, rMHandlerContainerStats: RMHandlerContainerStats)
+  case class RMHandlerContainerStats(allocated: Int, completed: Int, failed: Int)
+  case class RegisterAMMessage(appHostName: String, appHostPort: Int, appTrackingUrl: String)
+  case class AMStatusMessage(appStatus: FinalApplicationStatus, appMessage: String, appTrackingUrl: String)
+  case class ContainerInfo(container:Container, containerType: ContainerType, launchCommand: String => String)
+  case class ContainerStarted(containerId: ContainerId)
+}
+
+class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandlerActorProps: RMCallbackHandlerActorProps, rmClientActorProps: RMClientActorProps) extends Actor {
+  import AmActorProtocol._
   val LOG: Logger = LogUtil.getLogger(getClass)
   val nodeManagerCallbackHandler = createNodeManagerCallbackHandler
   val nodeManagerClient: NMClientAsync = createNMClient(nodeManagerCallbackHandler)
-  val rmClientActor = context.actorOf(rmClientActorProps, "rmClient")
+  val rmCallbackHandlerActor = context.actorOf(rmCallbackHandlerActorProps.props, "rmCallbackHandler")
+  val rmClientActor = context.actorOf(rmClientActorProps.props, "rmClient")
   val containersStatus = collection.mutable.Map[Long, ContainerInfo]()
   var masterContainers = Map.empty[ContainerId, (String, Int)]
   val host = InetAddress.getLocalHost.getHostName
@@ -70,7 +90,6 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
   var workerContainersRequested = 0
   val version = appConfig.getEnv("version")
 
-  var rmCallbackHandlerActor: Option[ActorRef] = None
   var servicesActor:Option[ActorRef] = None
 
   override def receive: Receive = {
@@ -280,19 +299,19 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
     }
 
   override def preStart(): Unit = {
-    val props = rmCallbackHandlerActorProps(appConfig, self)
-    rmCallbackHandlerActor = Some(context.actorOf(props, "rmCallbackHandler"))
+
   }
 
 }
- 
-class RMCallbackHandlerActor(appConfig: AppConfig, yarnAM: ActorRef) extends Actor {
+
+
+class RMCallbackHandlerActor(appConfig: AppConfig) extends Actor {
   val LOG: Logger = LogUtil.getLogger(getClass)
-  val rmCallbackHandler = new ResourceManagerCallbackHandler(appConfig, yarnAM)
+  val rmCallbackHandler = new ResourceManagerCallbackHandler(appConfig, context.parent)
 
   override def preStart(): Unit = {
     LOG.info("Sending RMCallbackHandler to YarnAM")
-    yarnAM ! rmCallbackHandler
+    context.parent ! rmCallbackHandler
   }
 
   override def receive: Receive = {
@@ -336,8 +355,7 @@ object YarnApplicationMaster extends App with ArgumentsParser {
       LOG.info("HADOOP_CONF_DIR: " + System.getenv("HADOOP_CONF_DIR"))
       LOG.info("Yarn config (yarn.resourcemanager.hostname): " + yarnConfiguration.get("yarn.resourcemanager.hostname"))
       LOG.info("Creating AMActor v1.5")
-      val rmClientActorProps = AmActor.getRMClientActorProps(yarnConfiguration)
-      val amActorProps = Props(new AmActor(appConfig, yarnConfiguration, AmActor.getRMCallbackHandlerActorProps, rmClientActorProps))
+      val amActorProps = Props(new AmActor(appConfig, yarnConfiguration, AmActor.getRMCallbackHandlerActorProps(appConfig), AmActor.getRMClientActorProps(yarnConfiguration)))
       system.actorOf(amActorProps, "GearPumpAMActor")
       system.awaitTermination()
       LOG.info("Shutting down")
