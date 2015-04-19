@@ -31,7 +31,7 @@ class ResourceManagerClientActor(yarnConf: YarnConfiguration) extends Actor {
     case amAttr: RegisterAMMessage =>
       LOG.info(s"Received RegisterAMMessage! ${amAttr.appHostName}:${amAttr.appHostPort}${amAttr.appTrackingUrl}")
       val response = client.registerApplicationMaster(amAttr.appHostName, amAttr.appHostPort, amAttr.appTrackingUrl)
-      LOG.info("got response : " + response)
+      LOG.info("sending response : " + response)
       sender ! response
     case amStatus: AMStatusMessage =>
       LOG.info("Received AMStatusMessage")
