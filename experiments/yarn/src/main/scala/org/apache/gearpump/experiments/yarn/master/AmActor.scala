@@ -93,6 +93,7 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
   var servicesActor:Option[ActorRef] = None
 
   override def receive: Receive = {
+
     case containerStarted: ContainerStarted =>
       LOG.info(s"Started container : ${containerStarted.containerId}")
       if (needMoreMasterContainersState) {
