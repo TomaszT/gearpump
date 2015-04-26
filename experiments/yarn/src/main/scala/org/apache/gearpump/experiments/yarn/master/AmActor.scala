@@ -144,6 +144,7 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
   private def setMasterAddrIfNeeded(containers: List[Container]) {
     masterCommand match {
       case None => masterCommand = Some(MasterContainerCommand(appConfig, containers.head.getNodeId.getHost, appConfig.getEnv(GEARPUMPMASTER_PORT).toInt))
+      case _ =>
     }
 
   }
@@ -174,7 +175,7 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
   private def launchWorkerContainers(containers: List[Container]) {
     containers.foreach(container => {
       val workerHost = container.getNodeId.getHost
-      val workerCommand = WorkerContainerCommand(masterCommand.get, workerHost).getCommand
+      val workerCommand = WorkerContainerCommand(appConfig, masterCommand.get, workerHost).getCommand
       launchCommand(container, workerCommand)
     })
   }

@@ -41,9 +41,7 @@ case class MasterContainerCommand(appConfig: AppConfig, masterHost: String, mast
   }
 }
 
-case class WorkerContainerCommand(masterContainerCommand: MasterContainerCommand, workerHost: String) extends ContainerCommand {
-
-  override val appConfig: AppConfig = masterContainerCommand.appConfig
+case class WorkerContainerCommand(appConfig: AppConfig, masterContainerCommand: MasterContainerCommand, workerHost: String) extends ContainerCommand {
 
   def getCommand: String = {
     val properties = Array(
