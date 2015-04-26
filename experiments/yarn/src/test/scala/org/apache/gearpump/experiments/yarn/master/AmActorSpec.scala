@@ -11,7 +11,7 @@ import org.apache.gearpump.experiments.yarn.AppConfig
 import org.apache.gearpump.util.LogUtil
 import org.apache.hadoop.net.NetUtils
 import org.apache.hadoop.yarn.conf.YarnConfiguration
-import org.scalatest.{BeforeAndAfterAll, WordSpecLike}
+import org.scalatest.{FlatSpecLike, BeforeAndAfter, BeforeAndAfterAll, WordSpecLike}
 import org.slf4j.Logger
 import org.specs2.matcher.MustMatchers
 import org.apache.gearpump.experiments.yarn.Constants._
@@ -26,9 +26,10 @@ class MockedChild(probe: ActorRef) extends Actor {
 }
 
 class AmActorSpec extends TestKit(ActorSystem("testsystem"))
-with WordSpecLike
+with FlatSpecLike
 with MustMatchers
-with StopSystemAfterAll {
+with StopSystemAfterAll
+with BeforeAndAfter {
   import AmActorProtocol._
 
   val YARN_TEST_CONFIG = "/gearpump_on_yarn.conf"
@@ -40,7 +41,7 @@ with StopSystemAfterAll {
   var probe:TestProbe = _
   var amActor: ActorRef = _
 
-  override def beforeAll(): Unit = {
+  before {
     println("before")
     probe = TestProbe()
     val amActorProps = Props(new AmActor(appConfig, yarnConfiguration, AmActor.RMCallbackHandlerActorProps(Props(classOf[MockedChild], probe.ref)), AmActor.RMClientActorProps(Props(classOf[MockedChild], probe.ref))))
@@ -48,18 +49,16 @@ with StopSystemAfterAll {
   }
 
 
-  "An AmActor" must {
+  "An AmActor" should
     "resend the same message to RMClientActor when ContainerRequestMessage is send to it" in {
         amActor ! ContainerRequestMessage(1024, 1)
         probe.expectMsg(ContainerRequestMessage(1024, 1))
       }
 
-    "forward the message and send RegisterAMMessage message to RMClientActor when ResourceManagerCallbackHandler is send to it" in {
+    it should "forward the message and send RegisterAMMessage message to RMClientActor when ResourceManagerCallbackHandler is send to it" in {
       val msg = new ResourceManagerCallbackHandler(appConfig , probe.ref)
-      probe.forward(amActor, msg)
-      println(probe.lastSender)
+      amActor ! msg
       probe.expectMsg(msg)
-      println(probe.lastSender)
       val port = appConfig.getEnv(YARNAPPMASTER_PORT).toInt
       val host = InetAddress.getLocalHost.getHostName
       val target = host + ":" + port
@@ -68,5 +67,24 @@ with StopSystemAfterAll {
       probe.expectMsg(new RegisterAMMessage(addr.getHostName, port, trackingURL))
       println(probe.lastSender)
     }
+
+    ignore should "when ContainerStarted is send to it" in {
+
+    }
+
+    ignore should "when RegisterApplicationMasterResponse is send to it" in {
+
+    }
+
+  ignore should "when LaunchContainers is send to it" in {
+
   }
+  ignore should "when RMHandlerDone is send to it" in {
+
+  }
+  ignore should "when ContainerStarted is send to it" in {
+
+  }
+
+
 }

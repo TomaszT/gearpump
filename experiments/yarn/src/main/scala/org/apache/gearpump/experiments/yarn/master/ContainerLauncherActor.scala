@@ -1,20 +1,15 @@
 package org.apache.gearpump.experiments.yarn.master
 
-import org.apache.hadoop.yarn.api.records.{ContainerLaunchContext, Container}
-import org.apache.hadoop.yarn.client.api.async.NMClientAsync
-import org.apache.gearpump.experiments.yarn.{AppConfig, YarnContainerUtil}
-import org.apache.gearpump.util.LogUtil
-import org.apache.hadoop.yarn.conf.YarnConfiguration
 import akka.actor._
+import org.apache.gearpump.util.LogUtil
+import org.apache.hadoop.yarn.api.records.{Container, ContainerLaunchContext}
+import org.apache.hadoop.yarn.client.api.async.NMClientAsync
 
-import scala.collection.JavaConversions._
 
-class ContainerLauncherActor(container: Container, nodeManagerClient: NMClientAsync,  yarnConf: YarnConfiguration, command: String, appConfig: AppConfig) extends Actor {
+class ContainerLauncherActor(container: Container, containerContext: ContainerLaunchContext, nodeManagerClient: NMClientAsync) extends Actor {
   val LOG = LogUtil.getLogger(getClass)
 
   override def preStart(): Unit = {
-    val containerContext: ContainerLaunchContext = YarnContainerUtil.getContainerContext(yarnConf, command)
-    containerContext.setLocalResources(YarnContainerUtil.getAMLocalResourcesMap(yarnConf, appConfig))
     nodeManagerClient.startContainerAsync(container, containerContext)
   }
 
