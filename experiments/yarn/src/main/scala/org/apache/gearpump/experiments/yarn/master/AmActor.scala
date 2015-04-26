@@ -184,7 +184,8 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
       LOG.info(s"Launching containter: containerId :  ${container.getId}, host ip : ${container.getNodeId.getHost}")
       LOG.info("Launching command : " + command)
       val containerContext = ContainerLaunchContextFactory(yarnConf, appConfig).newInstance(command)
-      context.actorOf(Props(classOf[ContainerLauncherActor], container, containerContext, nodeManagerClient))
+      nodeManagerClient.startContainerAsync(container, containerContext)
+      //context.actorOf(Props(classOf[ContainerLauncherActor], container, containerContext, nodeManagerClient))
   }
 
   private def createNMClient(containerListener: NodeManagerCallbackHandler): NMClientAsync = {
