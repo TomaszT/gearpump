@@ -43,3 +43,14 @@ class NodeManagerCallbackHandler(am: ActorRef) extends NMClientAsync.CallbackHan
     LOG.error(s"Container exception : $containerId", throwable)
   }
 }
+
+trait NodeManagerCallbackHandlerFactory {
+  def newInstance(am: ActorRef) :NodeManagerCallbackHandler
+}
+
+object DefaultNodeManagerCallbackHandlerFactory extends NodeManagerCallbackHandlerFactory {
+  override def newInstance(am: ActorRef): NodeManagerCallbackHandler = {
+    new NodeManagerCallbackHandler(am)
+  }
+
+}
