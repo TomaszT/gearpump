@@ -30,6 +30,7 @@ import org.apache.gearpump.experiments.yarn.CmdLineVars.{APPMASTER_IP, APPMASTER
 import org.apache.gearpump.experiments.yarn.Constants._
 import org.apache.gearpump.experiments.yarn.master.AmActor.{RMCallbackHandlerActorProps, RMClientActorProps}
 import org.apache.gearpump.experiments.yarn.{AppConfig, ContainerLaunchContextFactory, NodeManagerCallbackHandler, ResourceManagerClientActor}
+import org.apache.gearpump.transport.HostPort
 import org.apache.gearpump.util.LogUtil
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.net.NetUtils
@@ -75,13 +76,13 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
   val host = InetAddress.getLocalHost.getHostName
   val servicesPort = appConfig.getEnv(SERVICES_PORT).toInt
   val trackingURL = "http://"+host+":"+servicesPort
-  var masterCommand: Option[MasterContainerCommand] = None
+  var masterAddr: Option[HostPort] = None
   var masterContainersStarted = 0
   var workerContainersStarted = 0
   var workerContainersRequested = 0
   val version = appConfig.getEnv("version")
 
-  var servicesActor:Option[ActorRef] = None
+  var servicesActor: Option[ActorRef] = None
 
   override def receive: Receive = {
 
@@ -142,8 +143,9 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
   }
 
   private def setMasterAddrIfNeeded(containers: List[Container]) {
-    masterCommand match {
-      case None => masterCommand = Some(MasterContainerCommand(appConfig, containers.head.getNodeId.getHost, appConfig.getEnv(GEARPUMPMASTER_PORT).toInt))
+    masterAddr match {
+      case None =>
+        masterAddr = Some(HostPort(containers.head.getNodeId.getHost, appConfig.getEnv(GEARPUMPMASTER_PORT).toInt))
       case _ =>
     }
 
@@ -167,7 +169,8 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
   private def launchMasterContainers(containers: List[Container]) {
     containers.foreach(container => {
       val port = appConfig.getEnv(GEARPUMPMASTER_PORT).toInt
-      launchCommand(container, masterCommand.get.getCommand)
+      val masterCommand = MasterContainerCommand(appConfig, masterAddr.get)
+      launchCommand(container, masterCommand.getCommand)
       masterContainers += container.getId -> (container.getNodeId.getHost, port)
     })
   }
@@ -175,7 +178,7 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
   private def launchWorkerContainers(containers: List[Container]) {
     containers.foreach(container => {
       val workerHost = container.getNodeId.getHost
-      val workerCommand = WorkerContainerCommand(appConfig, masterCommand.get, workerHost).getCommand
+      val workerCommand = WorkerContainerCommand(appConfig, masterAddr.get, workerHost).getCommand
       launchCommand(container, workerCommand)
     })
   }
@@ -185,7 +188,6 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
       LOG.info("Launching command : " + command)
       val containerContext = ContainerLaunchContextFactory(yarnConf, appConfig).newInstance(command)
       nodeManagerClient.startContainerAsync(container, containerContext)
-      //context.actorOf(Props(classOf[ContainerLauncherActor], container, containerContext, nodeManagerClient))
   }
 
   private def createNMClient(containerListener: NodeManagerCallbackHandler): NMClientAsync = {
@@ -256,7 +258,6 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
     }
 
 }
-
 
 class RMCallbackHandlerActor(appConfig: AppConfig) extends Actor {
   val LOG: Logger = LogUtil.getLogger(getClass)

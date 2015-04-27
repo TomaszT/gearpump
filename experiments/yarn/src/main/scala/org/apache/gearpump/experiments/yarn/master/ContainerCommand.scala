@@ -4,6 +4,7 @@ import java.io.File
 
 import org.apache.gearpump.experiments.yarn.AppConfig
 import org.apache.gearpump.experiments.yarn.Constants._
+import org.apache.gearpump.transport.HostPort
 import org.apache.gearpump.util.Constants
 import org.apache.hadoop.yarn.api.ApplicationConstants
 
@@ -26,13 +27,13 @@ abstract class ContainerCommand {
 }
 
 
-case class MasterContainerCommand(appConfig: AppConfig, masterHost: String, masterPort: Int) extends ContainerCommand {
+case class MasterContainerCommand(appConfig: AppConfig, masterAddr: HostPort) extends ContainerCommand {
 
   def getCommand: String = {
-    val masterArguments = s"-ip $masterHost -port $masterPort"
+    val masterArguments = s"-ip ${masterAddr.host} -port ${masterAddr.port}"
 
     val properties = Array(
-      s"-D${Constants.GEARPUMP_CLUSTER_MASTERS}.0=${masterHost}:${masterPort}",
+      s"-D${Constants.GEARPUMP_CLUSTER_MASTERS}.0=${masterAddr.host}:${masterAddr.port}",
       s"-D${Constants.GEARPUMP_LOG_DAEMON_DIR}=${ApplicationConstants.LOG_DIR_EXPANSION_VAR}",
       s"-D${Constants.GEARPUMP_LOG_APPLICATION_DIR}=${ApplicationConstants.LOG_DIR_EXPANSION_VAR}")
 
@@ -41,11 +42,11 @@ case class MasterContainerCommand(appConfig: AppConfig, masterHost: String, mast
   }
 }
 
-case class WorkerContainerCommand(appConfig: AppConfig, masterContainerCommand: MasterContainerCommand, workerHost: String) extends ContainerCommand {
+case class WorkerContainerCommand(appConfig: AppConfig, masterAddr: HostPort, workerHost: String) extends ContainerCommand {
 
   def getCommand: String = {
     val properties = Array(
-      s"-D${Constants.GEARPUMP_CLUSTER_MASTERS}.0=${masterContainerCommand.masterHost}:${masterContainerCommand.masterPort}",
+      s"-D${Constants.GEARPUMP_CLUSTER_MASTERS}.0=${masterAddr.host}:${masterAddr.port}",
       s"-D${Constants.GEARPUMP_LOG_DAEMON_DIR}=${ApplicationConstants.LOG_DIR_EXPANSION_VAR}",
       s"-D${Constants.GEARPUMP_LOG_APPLICATION_DIR}=${ApplicationConstants.LOG_DIR_EXPANSION_VAR}",
       s"-D${Constants.GEARPUMP_HOSTNAME}=$workerHost")
