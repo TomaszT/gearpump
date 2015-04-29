@@ -30,6 +30,7 @@ import org.apache.hadoop.yarn.util.Apps
 import org.apache.hadoop.yarn.api.ApplicationConstants.Environment
 import java.io.File
 import scala.collection.JavaConversions._
+import scala.collection.JavaConverters._
 import org.apache.hadoop.security.UserGroupInformation
 import org.apache.hadoop.io.DataOutputBuffer
 import java.nio.ByteBuffer
@@ -42,6 +43,7 @@ case class ContainerLaunchContextFactory(yarnConf: YarnConfiguration, appConfig:
   private def getFs(yarnConf: YarnConfiguration) = FileSystem.get(yarnConf)
 
   private def getAppEnv(yarnConf: YarnConfiguration): Map[String, String] = {
+/*
     val appMasterEnv = new java.util.HashMap[String,String]
     for (
       c <- yarnConf.getStrings(
@@ -54,6 +56,17 @@ case class ContainerLaunchContextFactory(yarnConf: YarnConfiguration, appConfig:
     Apps.addToEnvironment(appMasterEnv, Environment.CLASSPATH.name(),
       Environment.PWD.$()+File.separator+"*", File.pathSeparator)
     appMasterEnv.toMap
+    */
+
+    val classPaths = yarnConf.getStrings(
+      YarnConfiguration.YARN_APPLICATION_CLASSPATH,
+      YarnConfiguration.DEFAULT_YARN_APPLICATION_CLASSPATH.mkString(File.pathSeparator))
+    val allPaths = classPaths :+ Environment.PWD.$()+File.separator+"*"+File.pathSeparator
+
+    Map(Environment.CLASSPATH.name -> allPaths.reduceLeft((a,b) => {
+      a + File.pathSeparator + b
+    }))
+
   }
 
   private def getAMLocalResourcesMap: Map[String, LocalResource] = {
