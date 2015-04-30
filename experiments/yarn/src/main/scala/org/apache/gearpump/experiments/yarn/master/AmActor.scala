@@ -58,6 +58,7 @@ object AmActorProtocol {
   case class RMHandlerContainerStats(allocated: Int, completed: Int, failed: Int)
   case class RegisterAMMessage(appHostName: String, appHostPort: Int, appTrackingUrl: String)
   case class AMStatusMessage(appStatus: FinalApplicationStatus, appMessage: String, appTrackingUrl: String)
+  //Kam only referenced in AmActor.containersStatus (below) but containersStatus doesn't seem to be used anywhere
   case class ContainerInfo(container:Container, containerType: ContainerType, launchCommand: String => String)
   case class ContainerStarted(containerId: ContainerId)
 }
@@ -69,6 +70,7 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
   val nodeManagerClient: NMClientAsync = nmClientAsyncFactory.newInstance(nodeManagerCallbackHandler, yarnConf)
   val rmCallbackHandlerActor = context.actorOf(rmCallbackHandlerActorProps.props, "rmCallbackHandler")
   val rmClientActor = context.actorOf(rmClientActorProps.props, "rmClient")
+  //Kam doesnt seemed to be reference anywhere
   val containersStatus = collection.mutable.Map[Long, ContainerInfo]()
 
   var masterContainers = Map.empty[ContainerId, (String, Int)]

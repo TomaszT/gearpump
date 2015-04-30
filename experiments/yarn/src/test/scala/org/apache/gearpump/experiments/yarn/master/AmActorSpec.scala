@@ -17,6 +17,7 @@ import org.specs2.matcher.MustMatchers
 import org.apache.gearpump.experiments.yarn.Constants._
 import scala.concurrent.duration._
 
+//Kam clever!!
 class MockedChild(probe: ActorRef) extends Actor {
   val LOG: Logger = LogUtil.getLogger(getClass)
 
@@ -44,6 +45,7 @@ with BeforeAndAfter {
   before {
     println("before")
     probe = TestProbe()
+    //Kam interesting use of this Props.apply
     val amActorProps = Props(new AmActor(appConfig, yarnConfiguration, AmActor.RMCallbackHandlerActorProps(Props(classOf[MockedChild], probe.ref)), AmActor.RMClientActorProps(Props(classOf[MockedChild], probe.ref))))
     amActor = TestActorRef[AmActor](amActorProps)
   }

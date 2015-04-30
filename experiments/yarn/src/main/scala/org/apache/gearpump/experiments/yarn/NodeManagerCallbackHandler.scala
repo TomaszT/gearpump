@@ -49,6 +49,8 @@ trait NodeManagerCallbackHandlerFactory {
 }
 
 object DefaultNodeManagerCallbackHandlerFactory extends NodeManagerCallbackHandlerFactory {
+  //Kam could leave out the { } eg:
+  // override def newInstance(am: ActorRef) = new NodeManagerCallbackHandler(am)
   override def newInstance(am: ActorRef): NodeManagerCallbackHandler = {
     new NodeManagerCallbackHandler(am)
   }

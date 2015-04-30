@@ -57,7 +57,10 @@ case class ContainerLaunchContextFactory(yarnConf: YarnConfiguration, appConfig:
       Environment.PWD.$()+File.separator+"*", File.pathSeparator)
     appMasterEnv.toMap
     */
-
+    //Kam below is scala equivalent. It looks like it does the following
+    // 1 get YARN_APPLICATION_CLASSPATH orElse DEFAULT_YARN_APPLICATION_CLASSPATH
+    // 2 append current directory's contents to 1.
+    // 3 return a Map with a single entry of CLASSPATH -> 1.join(';')
     val classPaths = yarnConf.getStrings(
       YarnConfiguration.YARN_APPLICATION_CLASSPATH,
       YarnConfiguration.DEFAULT_YARN_APPLICATION_CLASSPATH.mkString(File.pathSeparator))
