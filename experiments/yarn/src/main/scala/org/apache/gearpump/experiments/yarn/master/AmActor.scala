@@ -39,6 +39,8 @@ import org.apache.hadoop.yarn.client.api.async.NMClientAsync
 import org.apache.hadoop.yarn.conf.YarnConfiguration
 import org.slf4j.Logger
 
+import scala.util.{Failure, Success, Try}
+
 object AmActor {
   case class RMCallbackHandlerActorProps(props: Props)
   case class RMClientActorProps(props: Props)
@@ -58,6 +60,7 @@ object AmActorProtocol {
   import AmStates._
 
   sealed trait YarnApplicationMasterData
+  case class AMRMClientAsyncStartup(status:Try[Boolean])
   case class LaunchContainers(containers: List[Container]) extends YarnApplicationMasterData
   case class LaunchWorkerContainers(containers: List[Container])
   case class LaunchServiceContainer(containers: List[Container])
@@ -65,6 +68,7 @@ object AmActorProtocol {
   case class RMHandlerDone(reason: Reason, rMHandlerContainerStats: RMHandlerContainerStats)
   case class RMHandlerContainerStats(allocated: Int, completed: Int, failed: Int)
   case class RegisterAMMessage(appHostName: String, appHostPort: Int, appTrackingUrl: String)
+  case class RegisterAppMasterResponse(response: RegisterApplicationMasterResponse)
   case class AMStatusMessage(appStatus: FinalApplicationStatus, appMessage: String, appTrackingUrl: String)
   case class ContainerStarted(containerId: ContainerId)
 }
@@ -94,6 +98,22 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
 
   override def receive: Receive = {
 
+    case AMRMClientAsyncStartup(status) =>
+      status match {
+        case Success(true) =>
+          LOG.error("received AMRMClientAsyncStartup")
+          val port = appConfig.getEnv(YARNAPPMASTER_PORT).toInt
+          val target = host + ":" + port
+          val addr = NetUtils.createSocketAddr(target)
+          rmClientActor ! RegisterAMMessage(addr.getHostName, port, trackingURL)
+        case Success(false) =>
+          LOG.error("Failed to start AMRMClientAsync")
+        case Failure(ex) =>
+          LOG.error("Failed to start AMRMClientAsync", ex)
+        case _ =>
+          LOG.error("Unknown status for AMRMClientAysncStartup")
+      }
+
     case containerStarted: ContainerStarted =>
       LOG.info(s"Started container : ${containerStarted.containerId}")
       if (needMoreMasterContainersState) {
@@ -121,14 +141,10 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
     case rmCallbackHandler: ResourceManagerCallbackHandler =>
       LOG.info("Received RMCallbackHandler")
       rmClientActor forward rmCallbackHandler
-      val port = appConfig.getEnv(YARNAPPMASTER_PORT).toInt
-      val target = host + ":" + port
-      val addr = NetUtils.createSocketAddr(target)
-      rmClientActor ! RegisterAMMessage(addr.getHostName, port, trackingURL)
-    
-    case amResponse: RegisterApplicationMasterResponse =>
-      LOG.info("Received RegisterApplicationMasterResponse")
-      requestMasterContainers(amResponse)
+
+    case amResponse: RegisterAppMasterResponse =>
+      LOG.info("Received RegisterAppMasterResponse")
+      requestMasterContainers(amResponse.response)
 
     case containers: LaunchContainers =>
       LOG.info("Received LaunchContainers")
@@ -147,7 +163,10 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
     case done: RMHandlerDone =>
       LOG.info("Got RMHandlerDone")
       cleanUp(done)
-  
+
+    case unknown =>
+      LOG.info(s"Unknown message ${unknown.getClass.getName}")
+
   }
 
   private def setMasterAddrIfNeeded(containers: List[Container]) {
@@ -211,7 +230,8 @@ class AmActor(appConfig: AppConfig, yarnConf: YarnConfiguration, rmCallbackHandl
     if(previousContainersCount > 0) {
       LOG.warn("Previous container count > 0, can't do anything with it")
     }
-    
+
+    LOG.info(s"GEARPUMPMASTER_CONTAINERS ${appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt}")
     (1 to appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt).foreach(requestId => {
       rmClientActor ! ContainerRequestMessage(appConfig.getEnv(GEARPUMPMASTER_MEMORY).toInt, appConfig.getEnv(GEARPUMPMASTER_VCORES).toInt)
     })

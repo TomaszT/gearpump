@@ -9,6 +9,8 @@ import org.apache.hadoop.yarn.client.api.async.AMRMClientAsync
 import org.apache.hadoop.yarn.conf.YarnConfiguration
 import org.apache.hadoop.yarn.util.Records
 
+import scala.util.{Failure, Success, Try}
+
 class ResourceManagerClientActor(yarnConf: YarnConfiguration) extends Actor {
 
   import AmActorProtocol._
@@ -19,7 +21,12 @@ class ResourceManagerClientActor(yarnConf: YarnConfiguration) extends Actor {
   override def receive: Receive = {
     case rmCallbackHandler: ResourceManagerCallbackHandler =>
       LOG.info("Received RMCallbackHandler")
-      client = start(rmCallbackHandler)
+      Try({
+        client = start(rmCallbackHandler)
+        sender ! AMRMClientAsyncStartup(Try(true))
+      }).failed.map(throwable => {
+        sender ! AMRMClientAsyncStartup(Failure(throwable))
+      })
     case containerRequest: ContainerRequestMessage =>
       LOG.info("Received ContainerRequestMessage")
       client.addContainerRequest(createContainerRequest(containerRequest))
@@ -27,7 +34,7 @@ class ResourceManagerClientActor(yarnConf: YarnConfiguration) extends Actor {
       LOG.info(s"Received RegisterAMMessage! ${amAttr.appHostName}:${amAttr.appHostPort}${amAttr.appTrackingUrl}")
       val response = client.registerApplicationMaster(amAttr.appHostName, amAttr.appHostPort, amAttr.appTrackingUrl)
       LOG.info("sending response : " + response)
-      sender ! response
+      sender ! RegisterAppMasterResponse(response=response)
     case amStatus: AMStatusMessage =>
       LOG.info("Received AMStatusMessage")
       client.unregisterApplicationMaster(amStatus.appStatus, amStatus.appMessage, amStatus.appTrackingUrl)
