@@ -32,7 +32,7 @@ import org.slf4j.Logger
 import scala.collection.JavaConversions._
 import scala.util.{Failure, Success, Try}
 import org.apache.gearpump.experiments.yarn.AppConfig
-import org.apache.gearpump.experiments.yarn.ContainerLaunchContextFactory
+import org.apache.gearpump.experiments.yarn.YarnContainerUtil
 
 
 /**
@@ -189,7 +189,8 @@ class Client(configuration:AppConfig, yarnConf: YarnConfiguration, yarnClient: Y
     val appContext = yarnClient.createApplication.getApplicationSubmissionContext
     appContext.setApplicationName(getEnv(YARNAPPMASTER_NAME))
 
-    val containerContext = ContainerLaunchContextFactory(yarnConf, getConfiguration).newInstance(getCommand)
+    val containerContext: ContainerLaunchContext = YarnContainerUtil.getContainerContext(yarnConf, getCommand)
+    containerContext.setLocalResources(YarnContainerUtil.getAMLocalResourcesMap(yarnConf, getConfiguration))
     appContext.setAMContainerSpec(containerContext)
     appContext.setResource(getAMCapability)
     appContext.setQueue(getEnv(YARNAPPMASTER_QUEUE))
