@@ -33,33 +33,35 @@ import org.apache.gearpump.util.LogUtil
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.net.NetUtils
 import org.apache.hadoop.yarn.api.protocolrecords.RegisterApplicationMasterResponse
-import org.apache.hadoop.yarn.api.records.{Container, ContainerId, FinalApplicationStatus}
+import org.apache.hadoop.yarn.api.records.{ContainerExitStatus, ContainerStatus, Container, ContainerId}
 import org.apache.hadoop.yarn.client.api.async.NMClientAsync
 import org.apache.hadoop.yarn.client.api.async.impl.NMClientAsyncImpl
 import org.apache.hadoop.yarn.conf.YarnConfiguration
 import org.slf4j.Logger
 
+
 object AmActorProtocol {
 
-  sealed trait RMTerminalState {
-    val containerStats: ContainerStats
-  }
-  case class RMError(throwable: Throwable, containerStats: ContainerStats) extends RMTerminalState
-  case class RMShutdownRequest(containerStats: ContainerStats) extends RMTerminalState
+  sealed trait RMTerminalState
+  case class RMError(throwable: Throwable) extends RMTerminalState
+  case object RMShutdownRequest extends RMTerminalState
   case class RMAllRequestedContainersCompleted(containerStats: ContainerStats) extends RMTerminalState
 
   //protocol
-  case class AdditionalContainersRequest(count: Int)
+  //case class AdditionalContainersRequest(count: Int)
   case class LaunchWorkerContainers(containers: List[Container])
   case class LaunchServiceContainer(containers: List[Container])
   case class ContainersRequest(memory: Int, vCores: Int)
-  case class ContainersAllocated(containers: List[Container])
   case class ContainerStarted(containerId: ContainerId)
   case class ContainerStats(allocated: Int, completed: Int, failed: Int)
   case class RegisterAMMessage(appHostName: String, appHostPort: Int, appTrackingUrl: String)
   case class RegisterAppMasterResponse(response: RegisterApplicationMasterResponse)
   case object RMConnected
   case class RMConnectionFailed(throwable: Throwable)
+
+  sealed trait ResourceManagerResponse
+  case class ContainersAllocated(containers: List[Container]) extends ResourceManagerResponse
+  case class ContainersCompleted(containers: List[ContainerStatus]) extends ResourceManagerResponse
 }
 
 
@@ -70,6 +72,13 @@ class YarnApplicationMaster(appConfig: AppConfig, yarnConf: YarnConfiguration,
 
   import AmActorProtocol._
 
+  private[master] object ClusterStats {
+    var completedContainersCount = 0
+    var failedContainersCount = 0
+    var allocatedContainersCount = 0
+    var requestedContainersCount = 0
+  }
+
   private val LOG: Logger = LogUtil.getLogger(getClass)
   private val nodeManagerClient: NMClientAsync = createNMClient(yarnConf, self)
   private val servicesPort = appConfig.getEnv(SERVICES_PORT).toInt
@@ -78,12 +87,14 @@ class YarnApplicationMaster(appConfig: AppConfig, yarnConf: YarnConfiguration,
   private[master] val trackingURL = "http://" + host + ":" + servicesPort
   private val version = appConfig.getEnv("version")
 
+
   private var masterContainers = Map.empty[ContainerId, (String, Int)]
   private[master] var masterAddr: Option[HostPort] = None
   private[master] var masterContainersStarted = 0
   private[master] var workerContainersStarted = 0
   private[master] var workerContainersRequested = 0
   private var servicesActor: Option[ActorRef] = None
+
 
   override def receive: Receive = connectionHandler orElse
     containerHandler orElse
@@ -104,11 +115,44 @@ class YarnApplicationMaster(appConfig: AppConfig, yarnConf: YarnConfiguration,
   }
 
   def containerHandler: Receive = {
-    case AdditionalContainersRequest(count) =>
-      LOG.info("AM: Received AdditionalContainersRequest($count)")
-      requestMoreContainers(count)
+    //todo: do we need that now?
+    case ContainersCompleted(completedContainers) =>
+      completedContainers.foreach(containerStatus => {
+        val exitStatus = containerStatus.getExitStatus
+        LOG.info(s"ContainerID=$containerStatus.getContainerId(), state=$containerStatus.getState(), exitStatus=$exitStatus")
+
+        if (exitStatus != 0) {
+          //if container failed
+          if (exitStatus == ContainerExitStatus.ABORTED) {
+            ClusterStats.allocatedContainersCount -= 1
+            ClusterStats.requestedContainersCount -= 1
+          } else {
+            //shell script failed
+            ClusterStats.completedContainersCount += 1
+            ClusterStats.failedContainersCount += 1
+          }
+        } else {
+          ClusterStats.completedContainersCount += 1
+        }
+      })
+
+      // request more containers if any failed
+      val containerCount = appConfig.getEnv(WORKER_CONTAINERS).toInt + appConfig.getEnv(GEARPUMPMASTER_CONTAINERS).toInt
+      val requestCount = containerCount - ClusterStats.requestedContainersCount
+      ClusterStats.requestedContainersCount += requestCount
+
+
+      (0 until requestCount).foreach(request => {
+        //todo: it always requests worker containers, even if master or service was one that failed
+        requestMoreContainers(containerCount)
+      })
+
+      if (ClusterStats.completedContainersCount == containerCount) {
+        resourceManagerClient ! RMAllRequestedContainersCompleted(ContainerStats(ClusterStats.allocatedContainersCount, ClusterStats.completedContainersCount, ClusterStats.failedContainersCount))
+      }
 
     case ContainersAllocated(containers) =>
+      ClusterStats.allocatedContainersCount += containers.size
       LOG.info("Received LaunchContainers")
       if (needMoreMasterContainersState) {
         LOG.info(s"Launching more masters : ${containers.size}")

@@ -1,9 +1,8 @@
 package org.apache.gearpump.experiments.yarn
 
 import akka.actor._
-import org.apache.gearpump.experiments.yarn.AppConfig
 import org.apache.gearpump.experiments.yarn.Constants._
-import org.apache.gearpump.experiments.yarn.master.{ResourceManagerCallbackHandler, AmActorProtocol, YarnApplicationMaster}
+import org.apache.gearpump.experiments.yarn.master.{AmActorProtocol, ResourceManagerCallbackHandler, YarnApplicationMaster}
 import org.apache.gearpump.util.LogUtil
 import org.apache.hadoop.yarn.api.records.{FinalApplicationStatus, Priority, Resource}
 import org.apache.hadoop.yarn.client.api.AMRMClient.ContainerRequest
@@ -35,7 +34,8 @@ class ResourceManagerClient(yarnConf: YarnConfiguration, appConfig: AppConfig,
   override def receive: Receive = connectionHandler orElse
     containerHandler orElse
     registerHandler orElse
-    terminalStateHandler
+    terminalStateHandler orElse
+    resourceManagerCallbackHandler
 
   def connectionHandler: Receive = {
     case RMConnected =>
@@ -46,9 +46,11 @@ class ResourceManagerClient(yarnConf: YarnConfiguration, appConfig: AppConfig,
   }
 
   def containerHandler: Receive = {
+/*
     case additionalContainers@AdditionalContainersRequest(count) =>
       LOG.info("Received AdditionalContainersRequest for $count")
       applicationMaster ! additionalContainers
+*/
 
     case containersAllocated: ContainersAllocated =>
       applicationMaster ! containersAllocated
@@ -71,13 +73,14 @@ class ResourceManagerClient(yarnConf: YarnConfiguration, appConfig: AppConfig,
       client.foreach(_.unregisterApplicationMaster(FinalApplicationStatus.SUCCEEDED, message, null))
       applicationMaster ! rmAllRequestedContainersCompleted
 
-    case rmError@RMError(throwable, stats) =>
+    case rmError@RMError(throwable) =>
       LOG.info("Failed", throwable.getMessage)
-      val message = s"Failed. total=${appConfig.getEnv(WORKER_CONTAINERS).toInt}, completed=${stats.completed}, allocated=${stats.allocated}, failed=${stats.failed}"
-      client.foreach(_.unregisterApplicationMaster(FinalApplicationStatus.FAILED, message, null))
+      client.foreach(_.unregisterApplicationMaster(FinalApplicationStatus.FAILED, throwable.getMessage, null))
       applicationMaster ! rmError
 
-    case rmShutdownRequest@RMShutdownRequest(stats) =>
+    case rmShutdownRequest@RMShutdownRequest =>
+    //todo this need to be refactored or removed
+/*
       if (stats.failed == 0 && stats.completed == appConfig.getEnv(WORKER_CONTAINERS).toInt) {
         val message = s"ShutdownRequest. total=${appConfig.getEnv(WORKER_CONTAINERS).toInt}, completed=${stats.completed}, allocated=${stats.allocated}, failed=${stats.failed}"
         client.foreach(_.unregisterApplicationMaster(FinalApplicationStatus.KILLED, message, null))
@@ -85,7 +88,14 @@ class ResourceManagerClient(yarnConf: YarnConfiguration, appConfig: AppConfig,
         val message = s"ShutdownRequest. total=${appConfig.getEnv(WORKER_CONTAINERS).toInt}, completed=${stats.completed}, allocated=${stats.allocated}, failed=${stats.failed}"
         client.foreach(_.unregisterApplicationMaster(FinalApplicationStatus.FAILED, message, null))
       }
+*/
+
       applicationMaster ! rmShutdownRequest
+  }
+
+  def resourceManagerCallbackHandler: Receive = {
+    case response: ResourceManagerResponse =>
+      applicationMaster ! response
   }
 
   def createContainerRequest(attrs: ContainersRequest): ContainerRequest = {
