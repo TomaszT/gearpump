@@ -51,7 +51,7 @@ class ClientContext(config: Config, sys:Option[ActorSystem], mster: Option[Actor
   //LOG.info(s"Starting system ${system.name}")
 
   import system.dispatcher
-  
+
   private val LOG = LogUtil.getLogger(getClass)
   private val master = mster.getOrElse(system.actorOf(MasterProxy.props(masters), system.name))
 

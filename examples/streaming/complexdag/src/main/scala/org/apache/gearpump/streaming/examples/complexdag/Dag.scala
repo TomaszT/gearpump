@@ -102,9 +102,13 @@ object Dag extends App with ArgumentsParser {
     app
   }
 
+  LOG.info("parsing args")
   val config = parse(args)
+  LOG.info("Creating client context")
   val context = ClientContext()
+  LOG.info("Submitting app")
   val appId = context.submit(application(config))
+  LOG.info("Closing context")
   context.close()
 }
 
