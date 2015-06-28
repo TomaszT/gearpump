@@ -62,7 +62,9 @@ class ClientContext(config: Config, sys:Option[ActorSystem], mster: Option[Actor
    */
   def submit(app : Application) : Int = {
     import app.{name, appMaster, userConfig}
+    LOG.info("Before loading cluster config")
     val clusterConfig = ClusterConfig.load.applicationSubmissionConfig
+    LOG.info("After loading cluster config")
     val appDescription = AppDescription(name, appMaster.getName, userConfig, clusterConfig)
     submit(appDescription, System.getProperty(GEARPUMP_APP_JAR))
   }

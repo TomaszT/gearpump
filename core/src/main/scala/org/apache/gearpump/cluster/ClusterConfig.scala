@@ -114,7 +114,7 @@ object ClusterConfig {
         LOG.info("loading config file " + path + "..........")
         load(path)
       case None =>
-        LOG.info("loading config file application.conf...")
+        LOG.info("loading config file application.conf....")
         load("application.conf")
     }
   }
