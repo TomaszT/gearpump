@@ -41,7 +41,8 @@ import scala.util.{Failure, Success, Try}
 
 //TODO: add interface to query master here
 class ClientContext(config: Config, sys:Option[ActorSystem], mster: Option[ActorRef]) {
-  private val LOG: Logger = LogUtil.getLogger(getClass)
+  private val LOG = LogUtil.getLogger(getClass)
+
   private implicit val timeout = Timeout(5, TimeUnit.SECONDS)
 
   private val masters = config.getStringList(Constants.GEARPUMP_CLUSTER_MASTERS).toList.flatMap(Util.parseHostList)
