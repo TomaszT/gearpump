@@ -69,6 +69,7 @@ class ClientContext(config: Config, sys:Option[ActorSystem], mster: Option[Actor
 
   private def submit(app : AppDescription, jarPath: String) : Int = {
     Try({
+      LOG.info(s"Will use master proxy ${master} from master list: $masters")
       val client = new MasterClient(master)
       val appName = checkAndAddNamePrefix(app.name, System.getProperty(GEARPUMP_APP_NAME_PREFIX))
       val updatedApp = AppDescription(appName, app.appMaster, app.userConfig, app.clusterConfig)
