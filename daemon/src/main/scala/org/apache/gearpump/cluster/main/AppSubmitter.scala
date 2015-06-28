@@ -38,6 +38,7 @@ object AppSubmitter extends App with ArgumentsParser {
   def start : Unit = {
 
     Try({
+      LOG.info(s"Args pass to AppSubmitter : " + args.mkString(" "))
       val config = parse(args)
       if (null == config) {
         return
