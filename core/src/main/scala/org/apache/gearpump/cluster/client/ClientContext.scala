@@ -41,17 +41,18 @@ import scala.util.{Failure, Success, Try}
 
 //TODO: add interface to query master here
 class ClientContext(config: Config, sys:Option[ActorSystem], mster: Option[ActorRef]) {
-  private val LOG = LogUtil.getLogger(getClass)
+
 
   private implicit val timeout = Timeout(5, TimeUnit.SECONDS)
 
   private val masters = config.getStringList(Constants.GEARPUMP_CLUSTER_MASTERS).toList.flatMap(Util.parseHostList)
 
   implicit val system = sys.getOrElse(ActorSystem(s"client${Util.randInt}" , config))
-  LOG.info(s"Starting system ${system.name}")
+  //LOG.info(s"Starting system ${system.name}")
 
   import system.dispatcher
-
+  
+  private val LOG = LogUtil.getLogger(getClass)
   private val master = mster.getOrElse(system.actorOf(MasterProxy.props(masters), system.name))
 
   LOG.info(s"Creating master proxy ${master} for master list: $masters")
