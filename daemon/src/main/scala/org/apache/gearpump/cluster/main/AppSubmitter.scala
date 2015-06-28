@@ -47,6 +47,7 @@ object AppSubmitter extends App with ArgumentsParser {
 
       // Set jar path to be submitted to cluster
       System.setProperty(Constants.GEARPUMP_APP_JAR, jar)
+      LOG.info("Jar that will be submitted to cluster : " + jar)
 
       val namePrefix = config.getString("namePrefix")
       if (namePrefix.nonEmpty) {
@@ -67,6 +68,7 @@ object AppSubmitter extends App with ArgumentsParser {
 
           //set the context classloader as ActorSystem will use context classloader in precedence.
           Thread.currentThread().setContextClassLoader(classLoader)
+          LOG.info(s"launching $main with args: $arguments")
           val clazz = classLoader.loadClass(main)
           val mainMethod = clazz.getMethod("main", classOf[Array[String]])
           mainMethod.invoke(null, arguments)
