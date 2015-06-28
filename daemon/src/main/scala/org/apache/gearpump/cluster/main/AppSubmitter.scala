@@ -68,7 +68,8 @@ object AppSubmitter extends App with ArgumentsParser {
 
           //set the context classloader as ActorSystem will use context classloader in precedence.
           Thread.currentThread().setContextClassLoader(classLoader)
-          LOG.info(s"launching $main with args: $arguments")
+
+          LOG.info(s"launching $main with args: " + arguments.mkString(" "))
           val clazz = classLoader.loadClass(main)
           val mainMethod = clazz.getMethod("main", classOf[Array[String]])
           mainMethod.invoke(null, arguments)
